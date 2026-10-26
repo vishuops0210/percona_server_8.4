@@ -1,4 +1,14 @@
 ---
+- name: Require a supported Ubuntu release for ProxySQL
+  ansible.builtin.assert:
+    that:
+    - ansible_facts.distribution == 'Ubuntu'
+    - ansible_facts.distribution_version in ['22.04', '24.04']
+    fail_msg: ProxySQL install supports Ubuntu 22.04 or 24.04 amd64 only.
+- name: Use the Ubuntu 22.04 ProxySQL package on Jammy
+  ansible.builtin.set_fact:
+    proxysql_package_url: 'https://repo.proxysql.com/ProxySQL/proxysql-3.0.x/jammy/proxysql_{{ proxysql_version }}-ubuntu22_amd64.deb'
+  when: ansible_facts.distribution_version is version('22.04', '==')
 - name: Install proxy management dependencies
   ansible.builtin.apt:
     name: [python3-pymysql, python3-cryptography, ca-certificates]

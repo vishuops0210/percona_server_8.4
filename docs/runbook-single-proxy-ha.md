@@ -22,7 +22,7 @@ flowchart LR
 
 ## 1. Prepare the controller and hosts
 
-Run commands from the repository root. Use fresh Ubuntu 24.04 amd64 VMs with SSH and sudo access. The Ansible controller needs Ansible Core 2.16 or newer and network access to download packages.
+Run commands from the repository root. Use fresh Ubuntu 22.04 or 24.04 amd64 VMs with SSH and sudo access. The Ansible controller needs Ansible Core 2.16 or newer and network access to download packages.
 
 Install the pinned Ansible collections:
 

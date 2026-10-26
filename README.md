@@ -3,7 +3,7 @@
 Ansible automation that deploys a production-style MySQL high-availability
 stack: three Percona Server 8.4 nodes in single-primary Group Replication,
 fronted by ProxySQL, with XtraBackup-based backups and Prometheus exporters
-included. Ubuntu 24.04 amd64 throughout.
+included. Ubuntu 22.04 or 24.04 amd64 throughout.
 
 Start here if you are new to Ansible: read
 [the beginner guide](docs/beginner-guide.md) first, then come back to the
@@ -36,7 +36,7 @@ already sits in front of the proxies.
 
 ## Before you start: checklist
 
-- VMs: 3 database VMs plus 1 or 2 proxy VMs, Ubuntu 24.04 amd64 only.
+- VMs: 3 database VMs plus 1 or 2 proxy VMs, Ubuntu 22.04 or 24.04 amd64 only.
   Preflight enforces the OS version.
 - Database VMs: at least 20 GB free on the datadir filesystem, and at
   least 3584 MiB memory. A 2 vCPU, 8 GB VM is a good starting size.
@@ -162,7 +162,7 @@ source of confusion, so read it once and it is clear:
 - Group UUID: generate one per deployment, never reuse the example, never
   change it after deploy.
 - Disk: preflight needs at least 20 GB free on the datadir filesystem.
-- Ubuntu: 24.04 only. A 26.04 VM will fail preflight on purpose.
+- Ubuntu: 22.04 or 24.04 only. A 26.04 VM will fail preflight on purpose.
 - First backup: manual, on db3, after deploy. Verify will fail until it exists.
 - Inventory default trap: a plain configure run renders the inventory
   default. Update the inventory default first, or pass the intended value

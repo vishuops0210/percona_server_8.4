@@ -110,7 +110,7 @@ it needs a rolling STOP and START of Group Replication on every member.
 
 ## Hard rules
 
-- Ubuntu 24.04 only. Preflight enforces it.
+- Ubuntu 22.04 or 24.04 only. Preflight enforces it.
 - Replication password: at most 32 characters. Longer passwords fail
   Group Replication with MySQL error 3056. Preflight now checks this.
 - Disk: at least 20 GB free on the datadir filesystem, checked by preflight.

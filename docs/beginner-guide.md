@@ -11,7 +11,7 @@ You run Ansible on your laptop/control machine. It connects to existing VMs over
 
 ## 1. Prepare access
 
-Use Ubuntu 24.04 amd64 VMs. You need SSH access and sudo on each VM. Install Ansible Core 2.16+ on your control machine and check `ansible --version`.
+Use Ubuntu 22.04 or 24.04 amd64 VMs. You need SSH access and sudo on each VM. Install Ansible Core 2.16+ on your control machine and check `ansible --version`.
 
 From this repository's root:
 

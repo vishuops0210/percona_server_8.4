@@ -11,7 +11,7 @@ Run the whole HA stack on 4 VMs with 2 vCPU and 8 GB RAM each: three Percona 8.4
 
 ## 1. Prepare the servers
 
-Each VM: fresh Ubuntu 24.04 amd64, user `ubuntu` with passwordless sudo, your SSH public key in `~/.ssh/authorized_keys`, outbound internet for packages.
+Each VM: fresh Ubuntu 22.04 or 24.04 amd64, user `ubuntu` with passwordless sudo, your SSH public key in `~/.ssh/authorized_keys`, outbound internet for packages.
 
 Open these ports (security group or host firewall):
 

@@ -53,7 +53,7 @@ playbooks refuse to force-bootstrap an established group on purpose.
 ## Restore a backup to an isolated VM
 
 ```bash
-# 1. Prepare a fresh Ubuntu 24.04 VM with Percona 8.4 installed (use the percona_server role on a host outside the group)
+# 1. Prepare a fresh Ubuntu 22.04 or 24.04 VM with Percona 8.4 installed (use the percona_server role on a host outside the group)
 # 2. Copy the backup chain into its backup_path, or download from MinIO
 # 3. Run the restore playbook
 ansible-playbook -i <inventory> playbooks/operations/restore.yml --ask-vault-pass \
@@ -86,7 +86,7 @@ mysqlbinlog --stop-datetime="2026-10-19 14:30:00" \
 
 ## Add a member to the group
 
-1. Provision a fresh Ubuntu 24.04 VM; it must have no transactions of its own.
+1. Provision a fresh Ubuntu 22.04 or 24.04 VM; it must have no transactions of its own.
 2. Add it to `gr_members` in the inventory with a unique `percona_server_id`.
 3. Give it the same `percona_group_name`.
 4. Run `playbooks/operations/preflight.yml`, then `playbooks/group-two-proxies.yml`.

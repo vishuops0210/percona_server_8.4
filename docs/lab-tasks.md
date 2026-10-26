@@ -8,7 +8,7 @@ flowchart LR
   D --> E[View metrics and take backup]
 ```
 
-1. Prepare fresh Ubuntu 24.04 amd64 VMs and edit [HA inventory](../inventories/group-two-proxies.yml).
+1. Prepare fresh Ubuntu 22.04 or 24.04 amd64 VMs and edit [HA inventory](../inventories/group-two-proxies.yml).
 2. Fill the existing Vault keys from [the example](../inventories/group_vars/all/vault.example.yml).
 3. Run the setup:
 

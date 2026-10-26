@@ -8,12 +8,12 @@
   hosts: all
   become: true
   tasks:
-  - name: Require Ubuntu 24.04
+  - name: Require Ubuntu 22.04 or 24.04
     ansible.builtin.assert:
       that:
       - ansible_facts.distribution == 'Ubuntu'
-      - ansible_facts.distribution_version is version('24.04', '==')
-      fail_msg: This setup supports Ubuntu 24.04 amd64 only.
+      - ansible_facts.distribution_version in ['22.04', '24.04']
+      fail_msg: This setup supports Ubuntu 22.04 or 24.04 amd64 only.
   - name: Require enough memory on database nodes
     ansible.builtin.assert:
       # Allow nominal 4 GB VMs whose OS-visible memory is below 4096 MiB.
