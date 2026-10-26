@@ -124,7 +124,7 @@ Run a first full backup on `db3`:
 sudo /usr/local/bin/percona-backup backup full
 ```
 
-Backups are stored locally under `/var/backup/mysql`. With the sample settings, a daily full backup is scheduled for 01:00 in `db3`'s timezone. Monitor available disk space. MinIO uploads, retention deletion, and binlog archiving/PITR are not configured by this runbook.
+Backups are stored locally under `/var/backup/mysql`. With the sample settings, a daily full backup is scheduled for 01:00 in `db3`'s timezone, retention pruning runs at 02:30 keeping 7 days, and binlog archiving ships rotated binlogs every 5 minutes. Monitor available disk space. MinIO upload is optional and not enabled by default.
 
 Check the exporter on each database node:
 
@@ -136,7 +136,10 @@ Add the three exporter endpoints to an existing Prometheus scrape configuration;
 
 ## 8. Re-run individual configuration
 
-After changing database settings, apply them one node at a time:
+After changing database settings, apply them with configure.yml. Dynamic
+variables (max-connections, long-query-time, binlog-expire-logs-seconds)
+apply with no restart, every other change restarts one node at a time.
+See docs/day-2-configuration.md.
 
 ```bash
 ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/configure.yml --ask-vault-pass
