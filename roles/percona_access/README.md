@@ -16,6 +16,15 @@ flowchart LR
   U --> R[Group replicates changes]
 ```
 
+Two user lists exist, choose one per account, never both:
+
+- App connects through ProxySQL (normal case): use `proxysql_users` in
+  `inventories/group_vars/proxies.yml` and run `proxysql.yml`. That role
+  creates both the MySQL account and the ProxySQL credential.
+- Account connects directly to MySQL, not through ProxySQL (reporting,
+  admin, direct client): use `percona_users` below and run `access.yml`.
+  That role creates only the MySQL account, no ProxySQL credential.
+
 Edit `inventories/group_vars/all/main.yml`; keep passwords in encrypted `vault.yml`:
 
 ```yaml
@@ -23,10 +32,10 @@ percona_databases:
 - name: appdb
 
 percona_users:
-- name: appuser
+- name: report_reader
   host: '192.0.2.50' # Client address as seen by MySQL
-  password: '{{ vault_appuser_password }}'
-  priv: 'appdb.*:SELECT,INSERT,UPDATE,DELETE'
+  password: '{{ vault_report_reader_password }}'
+  priv: 'appdb.*:SELECT'
 ```
 
 Then run with your chosen inventory:

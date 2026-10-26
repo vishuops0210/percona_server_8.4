@@ -44,6 +44,13 @@ all group_replication variables.
 
 Use access.yml on the discovered writer. It never restarts MySQL.
 
+Rule that removes the confusion: there are two user lists, one account
+goes in only one of them. App through ProxySQL goes in `proxysql_users`
+(proxies.yml, run proxysql.yml). Direct MySQL account, not through
+ProxySQL, goes in `percona_users` (group_vars/all/main.yml, run access.yml).
+Role defaults with `[]` and commented examples are just the format, not
+active users; group_vars override them, and group_vars win.
+
 ```bash
 # Add a database and a user (edit group_vars or pass a vars file):
 ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/access.yml --ask-vault-pass
