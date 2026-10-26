@@ -1,0 +1,70 @@
+---
+- name: Read an existing server version before package changes
+  ansible.builtin.command: /usr/sbin/mysqld --version
+  register: existing_mysql
+  changed_when: false
+  failed_when: false
+- name: Keep this setup on Percona 8.4
+  ansible.builtin.assert:
+    that:
+    - percona_version == '8.4'
+    - existing_mysql.rc != 0 or ('Ver 8.4.' in existing_mysql.stdout and 'Percona' in existing_mysql.stdout)
+    fail_msg: Use fresh Ubuntu VMs or existing Percona 8.4 servers. Upgrading existing databases is a separate operation.
+- name: Install package prerequisites
+  ansible.builtin.apt:
+    name:
+    - gnupg
+    - ca-certificates
+    - python3-pymysql
+    - python3-cryptography
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+- name: Install repository manager
+  ansible.builtin.apt:
+    deb: '{{ percona_release_package }}'
+  when: percona_manage_repository | bool
+- name: Inspect enabled repositories
+  ansible.builtin.command:
+    argv:
+    - percona-release
+    - show
+  register: percona_repos
+  changed_when: false
+  when: percona_manage_repository | bool
+- name: Enable only the Percona 8.4 repository
+  ansible.builtin.command:
+    argv:
+    - percona-release
+    - setup
+    - -y
+    - ps-84-lts
+  when: percona_manage_repository | bool and 'ps-84-lts' not in percona_repos.stdout
+  changed_when: true
+- name: Refresh package metadata
+  ansible.builtin.apt:
+    update_cache: true
+- name: Inspect server package candidate
+  ansible.builtin.command:
+    argv:
+    - apt-cache
+    - policy
+    - percona-server-server
+  environment:
+    LC_ALL: C
+  register: percona_candidate
+  changed_when: false
+- name: Refuse an implicit major upgrade
+  ansible.builtin.assert:
+    that:
+    - '(percona_server_package_version | length > 0 and percona_server_package_version is match(''^8\.4\.'')) or
+      (percona_server_package_version | length == 0 and percona_candidate.stdout is search(''Candidate: 8\.4\.''))'
+    fail_msg: No 8.4 candidate available. Configure an authorized 8.4 repository/mirror; this playbook does not perform major-version upgrades.
+- name: Install Percona Server 8.4
+  ansible.builtin.apt:
+    name: '{{ ''percona-server-server'' ~ (''='' ~ percona_server_package_version if percona_server_package_version
+      | length else '''') }}'
+    state: present
+    allow_downgrade: false
+  environment:
+    DEBIAN_FRONTEND: noninteractive

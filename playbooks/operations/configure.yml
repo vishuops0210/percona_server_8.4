@@ -1,0 +1,11 @@
+---
+- name: Apply MySQL configuration one node at a time
+  hosts: database
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  tasks:
+  - name: Apply server settings without installing packages
+    ansible.builtin.include_role:
+      name: percona_server
+      tasks_from: configure

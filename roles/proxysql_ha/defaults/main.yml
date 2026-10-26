@@ -1,0 +1,6 @@
+---
+proxysql_ha_enabled: false
+proxysql_ha_interface: ens18
+proxysql_ha_vip: 192.0.2.50/24
+proxysql_ha_router_id: 51
+proxysql_ha_priority: 100

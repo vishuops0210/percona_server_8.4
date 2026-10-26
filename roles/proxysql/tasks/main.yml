@@ -1,0 +1,14 @@
+---
+- name: Install
+  ansible.builtin.import_tasks: install.yml
+  when: proxysql_install_packages | bool
+- name: Bootstrap
+  ansible.builtin.import_tasks: bootstrap.yml
+- name: Accounts
+  ansible.builtin.import_tasks: accounts.yml
+- name: Backends
+  ansible.builtin.import_tasks: backends.yml
+- name: Users
+  ansible.builtin.import_tasks: users.yml
+- name: Routing
+  ansible.builtin.import_tasks: routing.yml

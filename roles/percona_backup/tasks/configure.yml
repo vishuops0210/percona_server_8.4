@@ -1,0 +1,33 @@
+---
+- name: Create private backup directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop:
+  - /etc/percona-backup
+  - '{{ backup_path }}'
+- name: Render root-readable backup credentials
+  ansible.builtin.template:
+    src: backup.cnf.j2
+    dest: /etc/percona-backup/client.cnf
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  diff: false
+- name: Render backup settings without shell interpolation
+  ansible.builtin.template:
+    src: settings.json.j2
+    dest: /etc/percona-backup/settings.json
+    mode: '0600'
+    validate: python3 -m json.tool %s
+- name: Install shared backup and prepare workflow
+  ansible.builtin.copy:
+    src: backup.py
+    dest: /usr/local/bin/percona-backup
+    owner: root
+    group: root
+    mode: '0700'

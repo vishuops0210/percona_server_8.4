@@ -1,0 +1,41 @@
+---
+- name: Record initial bootstrap before starting the group
+  ansible.builtin.file:
+    path: /var/lib/mysql/.ansible-gr-created
+    state: touch
+    owner: mysql
+    group: mysql
+    mode: '0600'
+    modification_time: preserve
+    access_time: preserve
+  delegate_to: '{{ percona_group_seed }}'
+- name: Start the initial seed
+  block:
+  - name: Enable initial bootstrap
+    community.mysql.mysql_query:
+      login_user: '{{ percona_root_username }}'
+      login_password: '{{ percona_root_password }}'
+      login_unix_socket: '{{ percona_socket }}'
+      config_file: ''
+      query: SET GLOBAL group_replication_bootstrap_group=ON
+    delegate_to: '{{ percona_group_seed }}'
+    no_log: true
+  - name: Start seed group replication
+    community.mysql.mysql_query:
+      login_user: '{{ percona_root_username }}'
+      login_password: '{{ percona_root_password }}'
+      login_unix_socket: '{{ percona_socket }}'
+      config_file: ''
+      query: START GROUP_REPLICATION
+    delegate_to: '{{ percona_group_seed }}'
+    no_log: true
+  always:
+  - name: Turn bootstrap back off
+    community.mysql.mysql_query:
+      login_user: '{{ percona_root_username }}'
+      login_password: '{{ percona_root_password }}'
+      login_unix_socket: '{{ percona_socket }}'
+      config_file: ''
+      query: SET GLOBAL group_replication_bootstrap_group=OFF
+    delegate_to: '{{ percona_group_seed }}'
+    no_log: true

@@ -1,0 +1,20 @@
+---
+ansible_user: ubuntu
+ansible_become: true
+percona_root_password: '{{ vault_percona_root_password }}'
+percona_admin_password: '{{ vault_percona_root_password }}'
+percona_address: '{{ ansible_host }}'
+percona_bind_address: '0.0.0.0'
+percona_group_name: c17fdd55-1f5f-4a01-8799-b3e729163ff3
+percona_group_seed: db1
+percona_group_password: '{{ vault_replication_password }}'
+percona_max_connections: 150
+percona_databases:
+- name: appdb
+# percona_users: []
+backup_db_password: '{{ vault_backup_password }}'
+backup_schedule_enabled: true
+exporter_db_password: '{{ vault_exporter_password }}'
+exporter_listen_address: '0.0.0.0'
+proxysql_admin_password: '{{ vault_proxysql_admin_password }}'
+proxysql_monitor_password: '{{ vault_proxysql_monitor_password }}'

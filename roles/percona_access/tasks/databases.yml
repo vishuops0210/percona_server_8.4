@@ -1,0 +1,13 @@
+---
+- name: Manage explicitly listed databases
+  community.mysql.mysql_db:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    name: '{{ item.name }}'
+    encoding: '{{ item.encoding | default(''utf8mb4'') }}'
+    collation: '{{ item.collation | default(''utf8mb4_unicode_ci'') }}'
+    state: '{{ item.state | default("present") }}'
+  loop: '{{ percona_databases }}'
+  no_log: true

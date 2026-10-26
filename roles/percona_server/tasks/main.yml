@@ -1,0 +1,8 @@
+---
+- name: Install Percona
+  ansible.builtin.import_tasks: install.yml
+  when: percona_install_packages | bool
+- name: Connect to MySQL
+  ansible.builtin.import_tasks: bootstrap.yml
+- name: Configure MySQL
+  ansible.builtin.import_tasks: configure.yml

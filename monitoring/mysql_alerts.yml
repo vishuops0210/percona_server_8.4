@@ -1,0 +1,41 @@
+# Drop-in Prometheus alert rules for the Percona 8.4 Group Replication setup.
+# Copy this file's groups into your existing Prometheus rule files and set the
+# job name to match your scrape config (docs/monitoring.md uses job "percona").
+# Metric names verified against mysqld_exporter v0.17.2 collectors:
+#   mysql_perf_schema_replication_group_member_info{member_state,member_role,...}
+#   mysql_perf_schema_transactions_in_queue{member_id}
+groups:
+- name: percona-mysql
+  rules:
+  - alert: MySQLDown
+    expr: mysql_up{job="percona"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'MySQL down on {{ $labels.instance }}'
+      description: 'mysqld_exporter cannot reach MySQL. Check the mysql service on the host.'
+  - alert: MySQLGroupReplicationMemberNotOnline
+    expr: mysql_perf_schema_replication_group_member_info{job="percona",member_state!="ONLINE"} == 1
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'Group member {{ $labels.member_host }} is {{ $labels.member_state }}'
+      description: 'Member left the ONLINE state. See docs/troubleshooting.md "member not ONLINE".'
+  - alert: MySQLGroupReplicationNoPrimary
+    expr: sum(mysql_perf_schema_replication_group_member_info{job="percona",member_role="PRIMARY",member_state="ONLINE"}) < 1
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'Group Replication has no online PRIMARY'
+      description: 'Writes are stopped. The group lost quorum or election failed. See docs/troubleshooting.md.'
+  - alert: MySQLGroupReplicationApplierQueueHigh
+    expr: mysql_perf_schema_transactions_in_queue{job="percona"} > 100
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Applier queue above 100 on {{ $labels.instance }}'
+      description: 'A member is falling behind the group. Check for long transactions or disk/CPU saturation.'

@@ -1,0 +1,11 @@
+---
+- name: Manage application databases and users
+  hosts: database
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+  - name: Apply access definitions once on the current writer
+    ansible.builtin.include_role:
+      name: percona_access
+    run_once: true

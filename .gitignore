@@ -1,0 +1,9 @@
+*.retry
+__pycache__/
+.pytest_cache/
+*.tar.gz
+dist/
+inventories/**/vault.yml
+inventories/**/vault.yaml
+.vault_pass*
+.env*

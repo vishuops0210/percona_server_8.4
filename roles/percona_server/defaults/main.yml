@@ -1,0 +1,47 @@
+---
+percona_root_username: root
+percona_root_password: ''
+percona_socket: /var/run/mysqld/mysqld.sock
+percona_port: 3306
+percona_version: '8.4'
+percona_install_packages: true
+percona_manage_repository: true
+percona_release_package: https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+percona_server_package_version: ''
+percona_bootstrap_password: ''
+percona_server_id: 1
+percona_bind_address: 127.0.0.1
+percona_config_file: /etc/mysql/mysql.conf.d/mysqld.cnf
+percona_gtid_mode: true
+percona_binlog_expire_logs_seconds: 604800
+# Auto-size the shared InnoDB cache, leaving room for the OS, connections and backups.
+# Override memory_mb on shared/constrained hosts; facts do not enforce container limits.
+# Missing facts use a 1024 MiB sizing input (512M pool at the default percentage).
+percona_memory_mb: '{{ ansible_facts.memtotal_mb | default(1024) }}'
+percona_buffer_pool_percent: 50
+# Match default Linux 8.4 chunk/instance alignment without rounding above the budget.
+# Below 1 GiB use 128 MiB steps; otherwise use 1 GiB steps. Explicit values override.
+percona_innodb_buffer_pool_size: >-
+  {%- set target_mb = percona_memory_mb | int * percona_buffer_pool_percent | int / 100 -%}
+  {%- set step_mb = 1024 if target_mb >= 1024 else 128 -%}
+  {{ [((target_mb / step_mb) | int) * step_mb, 128] | max }}M
+# Connection/query concurrency is workload-dependent, not a percentage of RAM.
+percona_max_connections: 150
+percona_slow_query_time: 2
+
+percona_tls_ca: ''
+percona_tls_cert: ''
+percona_tls_key: ''
+percona_require_secure_transport: false
+
+# Every member of the selected inventory joins the same group.
+percona_group_name: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+percona_group_port: 33061
+percona_group_seed: "{{ groups.get('gr_members', ['db1']) | first }}"
+percona_group_user: gr_recovery
+percona_group_password: ''
+# Encrypt group communication and distributed recovery with TLS. The value must
+# be identical on every member; enabling it on a running group needs a rolling
+# STOP/START GROUP_REPLICATION, so decide before the first bootstrap.
+percona_gr_ssl: false
+percona_address: '{{ ansible_host | default(inventory_hostname) }}'

@@ -1,0 +1,20 @@
+---
+- name: Manage explicit query rules without clearing unrelated rules
+  community.proxysql.proxysql_query_rules:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    rule_id: '{{ item.rule_id }}'
+    active: true
+    username: '{{ item.username | default(omit) }}'
+    match_pattern: '{{ item.match_pattern | default(omit) }}'
+    destination_hostgroup: '{{ item.destination_hostgroup }}'
+    apply: true
+    state: '{{ item.state | default(''present'') }}'
+    comment: percona-ansible
+  loop: '{{ proxysql_query_rules }}'
+  no_log: true
+- name: Apply listener change once
+  ansible.builtin.meta: flush_handlers

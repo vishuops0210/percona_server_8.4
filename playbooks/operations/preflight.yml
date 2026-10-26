@@ -1,0 +1,80 @@
+---
+# Run before any install playbook. Fails fast on the mistakes that waste the
+# most time: wrong OS, placeholder values left in the inventory, duplicate
+# server ids, unreachable peers, missing vault secrets.
+#
+# ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/preflight.yml --ask-vault-pass
+- name: Check target servers
+  hosts: all
+  become: true
+  tasks:
+  - name: Require Ubuntu 24.04
+    ansible.builtin.assert:
+      that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.distribution_version is version('24.04', '==')
+      fail_msg: This setup supports Ubuntu 24.04 amd64 only.
+  - name: Require enough memory on database nodes
+    ansible.builtin.assert:
+      # Allow nominal 4 GB VMs whose OS-visible memory is below 4096 MiB.
+      that: ansible_facts.memtotal_mb | int >= 3584
+      fail_msg: "Detected {{ ansible_facts.memtotal_mb }} MiB RAM. This preflight requires at least 3584 MiB OS-visible memory for a nominal 4 GB VM."
+    when: "'gr_members' in group_names or 'primary' in group_names"
+  - name: Require free disk for data and backups
+    ansible.builtin.assert:
+      that: (datadir_mount.size_available | int) >= 20 * 1024 * 1024 * 1024
+      fail_msg: At least 20 GB free is required on the /var/lib/mysql filesystem.
+    vars:
+      datadir_mount: "{{ ansible_facts.mounts | selectattr('mount', 'equalto', '/var/lib/mysql') | first | default(ansible_facts.mounts | selectattr('mount', 'equalto', '/') | first) }}"
+    when: "'gr_members' in group_names or 'primary' in group_names"
+  - name: Require vault secrets to be set
+    ansible.builtin.assert:
+      that:
+      - percona_root_password | length > 0
+      - percona_group_password | length > 0
+      fail_msg: Fill inventories/group_vars/all/vault.yml from vault.example.yml first.
+    no_log: true
+    when: "'gr_members' in group_names or 'primary' in group_names"
+- name: Check group identity
+  hosts: gr_members
+  become: false
+  gather_facts: false
+  tasks:
+  - name: Require a real group UUID, not the placeholder
+    ansible.builtin.assert:
+      that:
+      - percona_group_name is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+      - percona_group_name != 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+      fail_msg: Generate a UUID and set percona_group_name in group_vars/all/main.yml.
+    run_once: true
+  - name: Require unique server ids
+    ansible.builtin.assert:
+      that: groups['gr_members'] | map('extract', hostvars) | map(attribute='percona_server_id') | unique | length == groups['gr_members'] | length
+      fail_msg: percona_server_id must be unique across group members.
+    run_once: true
+  - name: Probe SSH reachability between members
+    ansible.builtin.wait_for:
+      host: "{{ hostvars[item].ansible_host | default(item) }}"
+      port: 22
+      timeout: 10
+      state: started
+    loop: "{{ groups['gr_members'] | difference([inventory_hostname]) }}"
+    delegate_to: '{{ inventory_hostname }}'
+    when: groups['gr_members'] | length > 1
+- name: Check proxy targets
+  hosts: proxies
+  become: false
+  gather_facts: false
+  tasks:
+  - name: Require vault secrets to be set
+    ansible.builtin.assert:
+      that:
+      - proxysql_admin_password | length > 0
+      - proxysql_monitor_password | length > 0
+      fail_msg: Fill the proxysql vault keys in inventories/group_vars/all/vault.yml first.
+    no_log: true
+  - name: Require database targets to exist
+    ansible.builtin.assert:
+      that: groups.get('gr_members', []) | length > 0 or groups.get('primary', []) | length > 0
+      fail_msg: Define gr_members or primary before configuring proxies.
+    run_once: true

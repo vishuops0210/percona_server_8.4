@@ -1,0 +1,11 @@
+---
+percona_root_username: root
+percona_root_password: ''
+percona_socket: /var/run/mysqld/mysqld.sock
+percona_port: 3306
+exporter_version: 0.17.2
+exporter_checksum: sha256:https://github.com/prometheus/mysqld_exporter/releases/download/v0.17.2/sha256sums.txt
+exporter_db_user: mysqld_exporter
+exporter_db_password: ''
+exporter_listen_address: 127.0.0.1
+exporter_port: 9104

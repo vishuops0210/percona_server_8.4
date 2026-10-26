@@ -1,0 +1,7 @@
+---
+# Topology 1: three database nodes + one ProxySQL.
+# Use with inventories/group-one-proxy.yml.
+#
+# The deployment workflow is identical to the two-proxy setup; only the
+# inventory differs. One proxy means no proxy redundancy and no VIP.
+- import_playbook: group-two-proxies.yml

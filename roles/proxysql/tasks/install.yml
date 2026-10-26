@@ -1,0 +1,17 @@
+---
+- name: Install proxy management dependencies
+  ansible.builtin.apt:
+    name: [python3-pymysql, python3-cryptography, ca-certificates]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+- name: Download exact ProxySQL package
+  ansible.builtin.get_url:
+    url: '{{ proxysql_package_url }}'
+    dest: /var/tmp/proxysql-{{ proxysql_version }}.deb
+    checksum: '{{ proxysql_package_checksum | default(omit, true) }}'
+    mode: '0644'
+- name: Install proxy without starting an unconfigured listener
+  ansible.builtin.apt:
+    deb: /var/tmp/proxysql-{{ proxysql_version }}.deb
+    policy_rc_d: 101

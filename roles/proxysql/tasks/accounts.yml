@@ -1,0 +1,36 @@
+---
+- name: Discover current database writer
+  ansible.builtin.include_role:
+    name: percona_access
+    tasks_from: discover
+- name: Create a dedicated proxy monitor account on the writer
+  community.mysql.mysql_user:
+    login_user: '{{ hostvars[percona_account_host].percona_root_username | default(percona_root_username) }}'
+    login_password: '{{ hostvars[percona_account_host].percona_admin_password | default(percona_root_password) }}'
+    login_unix_socket: '{{ hostvars[percona_account_host].percona_socket | default(percona_socket) }}'
+    config_file: ''
+    name: '{{ proxysql_monitor_user }}'
+    host: '%'
+    plugin: caching_sha2_password
+    salt: "{{ (proxysql_monitor_user | hash('sha256'))[:20] }}"
+    plugin_auth_string: '{{ proxysql_monitor_password }}'
+    priv: '*.*:REPLICATION CLIENT/sys.*:SELECT/performance_schema.*:SELECT'
+    state: present
+  no_log: true
+  delegate_to: '{{ percona_account_host }}'
+  throttle: 1
+- name: Set restricted proxy monitor credentials
+  community.proxysql.proxysql_global_variables:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    variable: '{{ item.name }}'
+    value: '{{ item.value }}'
+  loop:
+  - name: mysql-monitor_username
+    value: '{{ proxysql_monitor_user }}'
+  - name: mysql-monitor_password
+    value: '{{ proxysql_monitor_password }}'
+  no_log: true

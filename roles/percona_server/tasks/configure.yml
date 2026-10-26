@@ -1,0 +1,52 @@
+---
+- name: Create MySQL log directory
+  ansible.builtin.file:
+    path: /var/log/mysql
+    state: directory
+    owner: mysql
+    group: mysql
+    mode: '0750'
+- name: Render MySQL configuration
+  ansible.builtin.template:
+    src: mysqld.cnf.j2
+    dest: '{{ percona_config_file }}'
+    mode: '0644'
+    validate: /usr/sbin/mysqld --defaults-file=%s --validate-config
+  register: percona_config_render
+- name: Apply configuration when the file changes
+  ansible.builtin.service:
+    name: mysql
+    state: restarted
+  when: percona_config_render.changed
+- name: Wait for the local database
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT 1
+  register: percona_ready
+  until: percona_ready is succeeded
+  retries: 30
+  delay: 2
+  changed_when: false
+  no_log: true
+
+- name: Check whether this server has joined a group before
+  ansible.builtin.stat:
+    path: /var/lib/mysql/.ansible-gr-created
+  register: configured_gr_marker
+- name: Wait for the restarted group member before moving to the next server
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT MEMBER_STATE FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid
+  register: configured_gr
+  until: configured_gr.query_result is defined and configured_gr.query_result[0] | selectattr('MEMBER_STATE', 'equalto', 'ONLINE') | list | length == 1
+  retries: 60
+  delay: 5
+  changed_when: false
+  no_log: true
+  when: configured_gr_marker.stat.exists and percona_config_render.changed

@@ -1,0 +1,15 @@
+---
+- name: Install
+  ansible.builtin.import_tasks: install.yml
+- name: Account
+  ansible.builtin.import_tasks: account.yml
+- name: Configure
+  ansible.builtin.import_tasks: configure.yml
+- name: Storage/minio
+  ansible.builtin.import_tasks: storage/minio.yml
+  when: backup_storage == 'minio'
+- name: Schedule
+  ansible.builtin.import_tasks: schedule.yml
+- name: Binlog archiving
+  ansible.builtin.import_tasks: binlog_archive.yml
+  when: backup_binlog_archive_enabled | bool

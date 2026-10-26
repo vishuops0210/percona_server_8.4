@@ -1,0 +1,24 @@
+---
+- name: Restore a backup to one separate standalone target
+  hosts: restore_targets
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+  - name: Select one target outside the active database group
+    ansible.builtin.assert:
+      that:
+      - ansible_play_hosts_all | length == 1
+      - backup_restore_target | default('') == inventory_hostname
+      - inventory_hostname not in groups.get('database', [])
+      - ansible_host | default(inventory_hostname) not in (groups.get('database', []) | map('extract', hostvars, 'ansible_host') | list)
+      fail_msg: Select a separate restore_targets host using --limit and backup_restore_target.
+  tasks:
+  - name: Install backup tooling
+    ansible.builtin.import_role:
+      name: percona_backup
+      tasks_from: prepare_target
+  - name: Restore the selected backup
+    ansible.builtin.import_role:
+      name: percona_backup
+      tasks_from: restore

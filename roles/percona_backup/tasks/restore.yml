@@ -1,0 +1,201 @@
+---
+- name: Require an explicit isolated restore target
+  ansible.builtin.assert:
+    that:
+    - backup_restore_target == inventory_hostname
+    - backup_restore_id | length > 0
+    - backup_restore_workdir is match('^/[a-zA-Z0-9_/-]+$')
+    - backup_restore_workdir != '/var/lib/mysql'
+    fail_msg: Pass backup_restore_target=<inventory hostname>, backup_restore_id and a fresh workspace. This stops
+      MySQL and preserves its current datadir separately.
+- name: Check target generation and datadir before preparing a restore
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT @@version AS version, @@datadir AS datadir
+  register: restore_target_identity
+  changed_when: false
+  no_log: true
+- name: Refuse a different server generation or datadir
+  ansible.builtin.assert:
+    that:
+    - restore_target_identity.query_result[0][0].version is match('^8\.4\.')
+    - restore_target_identity.query_result[0][0].datadir.rstrip('/') == '/var/lib/mysql'
+    fail_msg: Restore requires an isolated 8.4 target using /var/lib/mysql; no major-version migration or datadir
+      relocation is attempted.
+- name: Check target is not already replicating
+  community.mysql.mysql_replication:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    mode: getreplica
+  register: restore_replication
+  no_log: true
+- name: Refuse to overwrite an attached replica
+  ansible.builtin.assert:
+    that:
+    - not restore_replication.Is_Replica | default(false)
+    fail_msg: Use a new isolated target; this workflow never resets an existing replication channel.
+- name: Prepare and checksum-verify copies before stopping MySQL
+  ansible.builtin.command:
+    argv:
+    - /usr/local/bin/percona-backup
+    - prepare
+    - --backup-id
+    - '{{ backup_restore_id }}'
+    - --workdir
+    - '{{ backup_restore_workdir }}'
+  register: restore_prepared
+  changed_when: true
+- name: Record prepared result
+  ansible.builtin.set_fact:
+    restore_result: '{{ restore_prepared.stdout | from_json }}'
+- name: Require recorded GTID coordinates for replica seeding
+  ansible.builtin.assert:
+    that:
+    - not backup_restore_as_replica or restore_result.gtid | length > 0
+    fail_msg: Replica seeds need GTID coordinates from xtrabackup_binlog_info.
+- name: Check preserved-data destination is unused
+  ansible.builtin.stat:
+    path: /var/lib/mysql.before-{{ ansible_facts.date_time.iso8601_basic_short }}
+  register: restore_savedir
+- name: Never merge or overwrite a previous datadir
+  ansible.builtin.assert:
+    that:
+    - not restore_savedir.stat.exists
+    fail_msg: Preserved datadir name already exists; use a new run timestamp.
+- name: Keep restored data read-only and suppress automatic replication startup
+  ansible.builtin.copy:
+    dest: /etc/mysql/mysql.conf.d/zz-percona-restore.cnf
+    content: '[mysqld]
+
+      loose-group-replication-start-on-boot = OFF
+
+      skip-replica-start = ON
+
+      read-only = ON
+
+      super-read-only = ON
+
+      '
+    owner: root
+    group: root
+    mode: '0644'
+- name: Stop isolated target
+  ansible.builtin.service:
+    name: mysql
+    state: stopped
+- name: Preserve old datadir without deletion
+  ansible.builtin.command:
+    argv:
+    - mv
+    - -T
+    - --no-clobber
+    - /var/lib/mysql
+    - /var/lib/mysql.before-{{ ansible_facts.date_time.iso8601_basic_short }}
+  changed_when: true
+- name: Create empty target datadir
+  ansible.builtin.file:
+    path: /var/lib/mysql
+    state: directory
+    owner: mysql
+    group: mysql
+    mode: '0750'
+- name: Copy prepared backup into the empty target
+  ansible.builtin.command:
+    argv:
+    - xtrabackup
+    - --copy-back
+    - --target-dir={{ restore_result.prepared }}
+    - --datadir=/var/lib/mysql
+  changed_when: true
+- name: Assign a new UUID to the restored server
+  ansible.builtin.file:
+    path: /var/lib/mysql/auto.cnf
+    state: absent
+- name: Set restored ownership
+  ansible.builtin.file:
+    path: /var/lib/mysql
+    owner: mysql
+    group: mysql
+    recurse: true
+- name: Start isolated restored server
+  ansible.builtin.service:
+    name: mysql
+    state: started
+- name: Inspect copied replication metadata only on the isolated restored target
+  community.mysql.mysql_replication:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    mode: getreplica
+  register: restored_channel
+  no_log: true
+- name: Require stopped copied replication before clearing its metadata
+  ansible.builtin.assert:
+    that:
+    - restored_channel.Replica_IO_Running | default(restored_channel.Slave_IO_Running | default('No')) == 'No'
+    - restored_channel.Replica_SQL_Running | default(restored_channel.Slave_SQL_Running | default('No')) == 'No'
+    fail_msg: Restored replication unexpectedly started; keep the target isolated and investigate.
+  when: restored_channel.Is_Replica | default(false)
+- name: Clear copied channel metadata on the new isolated restore, preserving GTID history
+  community.mysql.mysql_replication:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    mode: resetreplicaall
+  when: restored_channel.Is_Replica | default(false)
+  no_log: true
+- name: Check restored server authentication and history
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT @@global.gtid_executed AS executed, @@server_uuid AS uuid
+  changed_when: false
+  register: restored_identity
+  no_log: true
+- name: Find missing backup GTIDs without resetting executed history
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT GTID_SUBTRACT(%s, @@global.gtid_executed) AS missing
+    positional_args:
+    - '{{ restore_result.gtid }}'
+  register: restored_missing
+  changed_when: false
+  when: restore_result.gtid | length > 0
+- name: Record backup GTIDs not present in restored executed history
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SET @@GLOBAL.GTID_PURGED = %s
+    positional_args:
+    - '{{ ''+'' ~ restored_missing.query_result[0][0].missing }}'
+  when: restore_result.gtid | length > 0 and restored_missing.query_result[0][0].missing | length > 0
+  no_log: true
+- name: Verify restored server is reachable
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT @@version AS version, @@server_uuid AS uuid, @@read_only AS ro
+  changed_when: false
+  register: restore_health
+- name: Verify new replica identity and read-only state
+  ansible.builtin.assert:
+    that:
+    - restore_health.query_result[0][0].uuid != restore_result.source_uuid
+    - restore_health.query_result[0][0].ro | int == 1
+    fail_msg: Verify replica target configuration and UUID before attaching it.

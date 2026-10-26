@@ -1,0 +1,7 @@
+---
+- name: Set up monitoring
+  hosts: monitoring_targets
+  become: true
+  serial: 1
+  roles:
+  - mysql_exporter

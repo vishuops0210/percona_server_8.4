@@ -1,0 +1,4 @@
+{{ {'path': backup_path, 'storage': backup_storage, 'parallel': backup_parallel | int,
+    'client_file': '/etc/percona-backup/client.cnf', 'mc': '/usr/local/bin/mc',
+    'mc_config_dir': '/etc/percona-backup/mc', 'binlog_path': backup_binlog_path,
+    'remote': 'backup/' ~ backup_minio_bucket ~ '/' ~ inventory_hostname} | to_nice_json }}

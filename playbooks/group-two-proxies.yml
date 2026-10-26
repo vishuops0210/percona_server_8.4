@@ -1,0 +1,35 @@
+---
+# Topology 2: three database nodes + two ProxySQL nodes.
+# Use with inventories/group-two-proxies.yml.
+# This is also the shared workflow imported by group-one-proxy.yml.
+- name: Prepare Percona 8.4 database nodes
+  hosts: gr_members
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+  - name: Require a separate VM address for each database member
+    ansible.builtin.assert:
+      that:
+      - groups['gr_members'] | map('extract', hostvars) | map(attribute='ansible_host') | unique | length == groups['gr_members'] | length
+      fail_msg: Each database member needs a different ansible_host. Correct the inventory before installing.
+  roles:
+  - percona_server
+- name: Form the single-primary group
+  hosts: gr_members
+  become: true
+  any_errors_fatal: true
+  roles:
+  - percona_group_replication
+- name: Create application databases and users on the elected writer
+  hosts: gr_members
+  become: true
+  gather_facts: false
+  tasks:
+  - name: Manage applications once
+    ansible.builtin.include_role:
+      name: percona_access
+    run_once: true
+- import_playbook: operations/proxysql.yml
+- import_playbook: operations/backup.yml
+- import_playbook: operations/monitoring.yml

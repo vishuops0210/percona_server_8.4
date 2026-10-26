@@ -1,0 +1,33 @@
+---
+- name: Create matching database app accounts
+  community.mysql.mysql_user:
+    login_user: '{{ hostvars[percona_account_host].percona_root_username | default(percona_root_username) }}'
+    login_password: '{{ hostvars[percona_account_host].percona_admin_password | default(percona_root_password) }}'
+    login_unix_socket: '{{ hostvars[percona_account_host].percona_socket | default(percona_socket) }}'
+    config_file: ''
+    name: '{{ item.name }}'
+    host: '%'
+    plugin: caching_sha2_password
+    salt: "{{ (item.name | hash('sha256'))[:20] }}"
+    plugin_auth_string: '{{ item.password }}'
+    priv: '{{ item.priv }}'
+    state: '{{ item.state | default(''present'') }}'
+  loop: '{{ proxysql_users }}'
+  no_log: true
+  delegate_to: '{{ percona_account_host }}'
+  throttle: 1
+- name: Configure application credentials on ProxySQL
+  community.proxysql.proxysql_mysql_users:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    username: '{{ item.name }}'
+    password: '{{ item.password }}'
+    default_hostgroup: '{{ proxysql_writer_hostgroup }}'
+    transaction_persistent: true
+    active: true
+    state: '{{ item.state | default(''present'') }}'
+  loop: '{{ proxysql_users }}'
+  no_log: true

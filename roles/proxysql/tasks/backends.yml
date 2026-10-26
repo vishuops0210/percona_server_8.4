@@ -1,0 +1,71 @@
+---
+- name: Read managed Group Replication hostgroups
+  community.mysql.mysql_query:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    query: SELECT * FROM mysql_group_replication_hostgroups WHERE writer_hostgroup=%s
+    positional_args: ['{{ proxysql_writer_hostgroup }}']
+  register: proxy_gr
+  changed_when: false
+  no_log: true
+  when: groups.get('gr_members', []) | length > 0
+- name: Configure one writer with Group Replication monitoring
+  community.mysql.mysql_query:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    query: >-
+      INSERT OR REPLACE INTO mysql_group_replication_hostgroups
+      (writer_hostgroup,backup_writer_hostgroup,reader_hostgroup,offline_hostgroup,active,max_writers,writer_is_also_reader,max_transactions_behind,comment)
+      VALUES (%s,%s,%s,%s,1,1,1,%s,'percona-ansible')
+    positional_args:
+    - '{{ proxysql_writer_hostgroup }}'
+    - '{{ proxysql_backup_writer_hostgroup }}'
+    - '{{ proxysql_reader_hostgroup }}'
+    - '{{ proxysql_offline_hostgroup }}'
+    - '{{ proxysql_max_transactions_behind }}'
+  when:
+  - groups.get('gr_members', []) | length > 0
+  - >-
+    proxy_gr.query_result[0] | length == 0 or
+    proxy_gr.query_result[0][0].backup_writer_hostgroup | int != proxysql_backup_writer_hostgroup | int or
+    proxy_gr.query_result[0][0].reader_hostgroup | int != proxysql_reader_hostgroup | int or
+    proxy_gr.query_result[0][0].offline_hostgroup | int != proxysql_offline_hostgroup | int or
+    proxy_gr.query_result[0][0].max_transactions_behind | int != proxysql_max_transactions_behind | int or
+    proxy_gr.query_result[0][0].max_writers | int != 1 or
+    proxy_gr.query_result[0][0].active | int != 1 or
+    proxy_gr.query_result[0][0].writer_is_also_reader | int != 1
+  no_log: true
+- name: Register database members
+  community.proxysql.proxysql_backend_servers:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    hostgroup_id: '{{ proxysql_writer_hostgroup }}'
+    hostname: '{{ hostvars[item].percona_address | default(hostvars[item].ansible_host | default(item)) }}'
+    port: '{{ hostvars[item].percona_port | default(3306) }}'
+    max_connections: 100
+    comment: percona-ansible
+    state: present
+  loop: "{{ groups['gr_members'] }}"
+  no_log: true
+
+- name: Activate and persist backend configuration
+  community.mysql.mysql_query:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    query:
+    - LOAD MYSQL SERVERS TO RUNTIME
+    - SAVE MYSQL SERVERS TO DISK
+  changed_when: false
+  no_log: true

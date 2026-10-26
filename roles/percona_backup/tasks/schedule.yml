@@ -1,0 +1,49 @@
+---
+- name: Remove superseded legacy backup schedules
+  ansible.builtin.cron:
+    name: '{{ item }}'
+    user: root
+    state: absent
+  loop:
+  - "MySQL HA full backup \u2014 weekly"
+  - "MySQL HA incremental backup \u2014 daily"
+- name: Manage full-backup schedule explicitly
+  ansible.builtin.cron:
+    name: Percona full backup
+    user: root
+    minute: '{{ backup_minute }}'
+    hour: '{{ backup_hour }}'
+    weekday: '{{ ''0'' if backup_incremental_enabled | bool else ''*'' }}'
+    job: /usr/local/bin/percona-backup backup full >> /var/log/percona-backup.log 2>&1
+    state: '{{ ''present'' if backup_schedule_enabled | bool else ''absent'' }}'
+- name: Manage incremental schedule explicitly
+  ansible.builtin.cron:
+    name: Percona incremental backup
+    user: root
+    minute: '{{ backup_minute }}'
+    hour: '{{ backup_hour }}'
+    weekday: 1-6
+    job: /usr/local/bin/percona-backup backup incremental >> /var/log/percona-backup.log 2>&1
+    state: '{{ ''present'' if backup_schedule_enabled | bool and backup_incremental_enabled | bool else ''absent'' }}'
+- name: Manage backup retention pruning
+  ansible.builtin.cron:
+    name: Percona backup prune
+    user: root
+    minute: '{{ backup_prune_minute }}'
+    hour: '{{ backup_prune_hour }}'
+    job: /usr/local/bin/percona-backup prune --retention-days {{ backup_retention_days }} >> /var/log/percona-backup.log 2>&1
+    state: '{{ ''present'' if backup_prune_enabled | bool else ''absent'' }}'
+- name: Mirror archived binlogs to MinIO
+  ansible.builtin.cron:
+    name: Percona binlog MinIO mirror
+    user: root
+    minute: '*/15'
+    job: /usr/local/bin/mc --config-dir /etc/percona-backup/mc mirror --overwrite --remove {{ backup_binlog_path }} backup/{{ backup_minio_bucket }}/{{ inventory_hostname }}-binlog >> /var/log/percona-backup.log 2>&1
+    state: '{{ ''present'' if backup_binlog_archive_enabled | bool and backup_storage == ''minio'' else ''absent'' }}'
+- name: Create private scheduled-job log
+  ansible.builtin.file:
+    path: /var/log/percona-backup.log
+    state: touch
+    mode: '0600'
+    modification_time: preserve
+    access_time: preserve

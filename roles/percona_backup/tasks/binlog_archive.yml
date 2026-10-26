@@ -1,0 +1,22 @@
+---
+- name: Create private binlog archive directory
+  ansible.builtin.file:
+    path: '{{ backup_binlog_path }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+- name: Install binlog shipping script
+  ansible.builtin.copy:
+    src: binlog-ship.sh
+    dest: /usr/local/bin/percona-binlog-ship
+    owner: root
+    group: root
+    mode: '0700'
+- name: Ship rotated binlogs every five minutes
+  ansible.builtin.cron:
+    name: Percona binlog ship
+    user: root
+    minute: '*/5'
+    job: /usr/local/bin/percona-binlog-ship {{ backup_binlog_path }} /etc/percona-backup/client.cnf >> /var/log/percona-backup.log 2>&1
+    state: '{{ ''present'' if backup_binlog_archive_enabled | bool else ''absent'' }}'

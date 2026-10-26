@@ -1,0 +1,72 @@
+---
+- name: Read local group state
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT MEMBER_STATE FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid
+  register: gr_local
+  until: gr_local.query_result is defined and gr_local.query_result[0] | selectattr('MEMBER_STATE', 'equalto', 'RECOVERING') | list | length == 0
+  retries: 60
+  delay: 5
+  changed_when: false
+  no_log: true
+- name: Remember which members are online
+  ansible.builtin.set_fact:
+    gr_online: "{{ gr_local.query_result[0] | selectattr('MEMBER_STATE', 'equalto', 'ONLINE') | list | length > 0 }}"
+- name: Inspect previous group bootstrap marker
+  ansible.builtin.stat:
+    path: /var/lib/mysql/.ansible-gr-created
+  register: gr_marker
+- name: List online members
+  ansible.builtin.set_fact:
+    gr_online_hosts: "{{ groups['gr_members'] | map('extract', hostvars) | selectattr('gr_online', 'equalto', true) | map(attribute='inventory_hostname') | list }}"
+  run_once: true
+- name: Do not bootstrap an established group again
+  ansible.builtin.assert:
+    that:
+    - groups['gr_members'] | difference(ansible_play_hosts_all) | length == 0
+    - gr_online_hosts | length > 0 or (groups['gr_members'] | map('extract', hostvars) | map(attribute='gr_marker.stat.exists') | select('equalto', true) | list | length == 0)
+    - percona_group_password | length > 0
+    fail_msg: Run against all group members. If an established group is fully offline, recover it deliberately; this setup never force-bootstraps it.
+  run_once: true
+- name: Prepare offline members
+  ansible.builtin.include_tasks: member.yml
+  when: not gr_online
+- name: Bootstrap the first group
+  ansible.builtin.include_tasks: bootstrap.yml
+  when: gr_online_hosts | length == 0
+  run_once: true
+- name: Join offline members to the group
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: START GROUP_REPLICATION
+  when: not gr_online and not (inventory_hostname == percona_group_seed and gr_online_hosts | length == 0)
+  no_log: true
+- name: Wait for this member to become online
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT MEMBER_STATE FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid
+  register: gr_joined
+  until: gr_joined.query_result is defined and gr_joined.query_result[0] | selectattr('MEMBER_STATE', 'equalto', 'ONLINE') | list | length == 1
+  retries: 60
+  delay: 5
+  changed_when: false
+  no_log: true
+
+- name: Record group membership
+  ansible.builtin.file:
+    path: /var/lib/mysql/.ansible-gr-created
+    state: touch
+    owner: mysql
+    group: mysql
+    mode: '0600'
+    modification_time: preserve
+    access_time: preserve

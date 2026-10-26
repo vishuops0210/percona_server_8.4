@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+[client]
+user = {{ exporter_db_user | to_json(ensure_ascii=False) }}
+password = {{ exporter_db_password | to_json(ensure_ascii=False) }}
+socket = {{ percona_socket | to_json }}

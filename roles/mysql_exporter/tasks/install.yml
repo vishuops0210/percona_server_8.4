@@ -1,0 +1,33 @@
+---
+- name: Install database module dependency
+  ansible.builtin.apt:
+    name:
+    - python3-pymysql
+    - python3-cryptography
+    state: present
+- name: Create exporter system account
+  ansible.builtin.user:
+    name: mysqld_exporter
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+- name: Download pinned exporter archive
+  ansible.builtin.get_url:
+    url: https://github.com/prometheus/mysqld_exporter/releases/download/v{{ exporter_version }}/mysqld_exporter-{{
+      exporter_version }}.linux-amd64.tar.gz
+    dest: /var/tmp/mysqld_exporter-{{ exporter_version }}.tar.gz
+    checksum: '{{ exporter_checksum }}'
+    mode: '0644'
+- name: Extract exporter archive
+  ansible.builtin.unarchive:
+    src: /var/tmp/mysqld_exporter-{{ exporter_version }}.tar.gz
+    dest: /var/tmp
+    remote_src: true
+    creates: /var/tmp/mysqld_exporter-{{ exporter_version }}.linux-amd64/mysqld_exporter
+- name: Install exporter binary
+  ansible.builtin.copy:
+    src: /var/tmp/mysqld_exporter-{{ exporter_version }}.linux-amd64/mysqld_exporter
+    dest: /usr/local/bin/mysqld_exporter
+    remote_src: true
+    mode: '0755'
+  notify: mysql_exporter_restart

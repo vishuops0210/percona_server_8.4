@@ -1,0 +1,37 @@
+---
+percona_root_username: root
+percona_root_password: ''
+percona_socket: /var/run/mysqld/mysqld.sock
+# Database deletion also requires state: absent on the named database.
+percona_allow_database_drop: false
+
+percona_databases: []
+# percona_databases:
+#   - name: appdb
+#     encoding: utf8mb4                 # Optional; this is the default.
+#     collation: utf8mb4_unicode_ci     # Optional; this is the default.
+#   - name: reporting
+
+percona_users: []
+# percona_users:
+#   - name: appuser
+#     host: "192.0.2.50"               # Client/source IP as seen by MySQL, not db1's IP.
+#     password: "{{ vault_appuser_password }}"
+#     priv: "appdb.*:SELECT,INSERT,UPDATE,DELETE"
+#     plugin: caching_sha2_password    # Optional; this is the default.
+#     state: present                   # Optional; this is the default.
+#   - name: report_reader
+#     host: localhost                  # Optional; omitted host defaults to '%' (any host).
+#     password: "{{ vault_report_reader_password }}"
+#     priv: "appdb.*:SELECT/reporting.*:SELECT"
+#
+# Store these password variables in encrypted group_vars/all/vault.yml.
+# priv uses MySQL privilege names, not a complete SQL GRANT statement:
+#   "appdb.*:SELECT,INSERT"             -> Selected privileges on all appdb tables.
+#   "appdb.orders:SELECT"               -> Read only the orders table.
+#   "appdb.*:ALL"                       -> All database-level privileges on appdb.
+# Separate database/table entries with / and privilege names with commas.
+# Grants for an existing managed account are reconciled, not merely appended;
+# include every privilege that account should retain. Omitting a user does not delete it.
+# The role creates databases before users; it does not create application tables.
+

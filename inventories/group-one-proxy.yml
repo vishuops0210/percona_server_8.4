@@ -1,0 +1,32 @@
+---
+# 4. Four VMs: three database members + one ProxySQL server. Backups + exporters included; no proxy redundancy.
+# Choose this file only; replace ansible_host addresses with your VM IPs.
+all:
+  children:
+    database:
+      children:
+        gr_members:
+          hosts:
+            db1:
+              ansible_host: one.percona.internal
+              percona_server_id: 101
+            db2:
+              ansible_host: two.percona.internal
+              percona_server_id: 102
+            db3:
+              ansible_host: three.percona.internal
+              percona_server_id: 103
+    proxies:
+      hosts:
+        proxy1:
+          ansible_host: proxysql.percona.internal
+    backup_sources:
+      hosts:
+        db3: {}
+    monitoring_targets:
+      hosts:
+        db1: {}
+        db2: {}
+        db3: {}
+    restore_targets:
+      hosts: {}

@@ -1,0 +1,41 @@
+---
+namespace: opstree
+name: percona
+version: 1.0.0
+readme: README.md
+authors:
+- Vishal Tyagi <vishal.tyagi@opstree.com>
+description: Percona Server for MySQL 8.4 on Ubuntu. Standalone or 3-node Group Replication with ProxySQL routing, XtraBackup backups, binlog archiving and monitoring.
+license:
+- MIT
+repository: https://github.com/OT-OSM/percona_server
+documentation: https://github.com/OT-OSM/percona_server/tree/percona_replication_setup_8.4/docs
+homepage: https://github.com/OT-OSM/percona_server
+issues: https://github.com/OT-OSM/percona_server/issues
+tags:
+- mysql
+- percona
+- database
+- replication
+- proxysql
+- backup
+dependencies:
+  community.mysql: "4.0.1"
+  community.proxysql: "1.7.0"
+build_ignore:
+- .git
+- .github
+- .agents
+- .codex
+- .aws
+- .gitignore
+- .pytest_cache
+- '**/__pycache__'
+- '**/*.pyc'
+- '**/vault.yml'
+- '**/vault.yaml'
+- '**/.vault_pass*'
+- '**/.env*'
+- '*.tar.gz'
+- dist
+- LOCAL-RUN.md

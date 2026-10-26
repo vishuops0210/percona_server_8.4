@@ -1,0 +1,20 @@
+---
+- name: Download verified MinIO client
+  ansible.builtin.get_url:
+    url: '{{ backup_mc_url }}'
+    dest: /usr/local/bin/mc
+    checksum: '{{ backup_mc_checksum }}'
+    mode: '0755'
+- name: Create private MinIO client directory
+  ansible.builtin.file:
+    path: /etc/percona-backup/mc
+    state: directory
+    mode: '0700'
+- name: Render scoped object-storage credentials
+  ansible.builtin.template:
+    src: mc.json.j2
+    dest: /etc/percona-backup/mc/config.json
+    mode: '0600'
+    validate: python3 -c 'import json,sys; json.load(open(sys.argv[1]))' %s
+  no_log: true
+  diff: false

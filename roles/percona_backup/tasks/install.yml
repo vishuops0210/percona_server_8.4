@@ -1,0 +1,16 @@
+---
+- name: Install Percona repository manager when needed
+  ansible.builtin.apt:
+    deb: https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+- name: Enable XtraBackup 8.4 repository
+  ansible.builtin.command: percona-release enable pxb-84-lts release
+  register: backup_repo
+  changed_when: "'already enabled' not in backup_repo.stdout"
+- name: Install compatible physical backup tooling
+  ansible.builtin.apt:
+    name:
+    - percona-xtrabackup-84
+    - python3-pymysql
+    - python3-cryptography
+    state: present
+    update_cache: true

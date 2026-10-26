@@ -1,0 +1,59 @@
+---
+- name: Ensure MySQL is running
+  ansible.builtin.service:
+    name: mysql
+    state: started
+    enabled: true
+- name: Try desired local administrator credentials
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT 1
+  changed_when: false
+  register: percona_desired_auth
+  failed_when: false
+  no_log: true
+- name: Try explicitly supplied bootstrap or passwordless local authentication
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_bootstrap_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT 1
+  when: percona_desired_auth.query_result is not defined
+  register: percona_initial_auth
+  failed_when: false
+  changed_when: false
+  no_log: true
+- name: Require a valid existing authentication path
+  ansible.builtin.assert:
+    that:
+    - percona_desired_auth.query_result is defined or percona_initial_auth.query_result is defined
+    fail_msg: Cannot authenticate locally. Supply the current password as percona_bootstrap_password. No grant bypass
+      or password reset is attempted.
+- name: Set desired root credential only when it does not already work
+  community.mysql.mysql_user:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_bootstrap_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    name: '{{ percona_root_username }}'
+    host: localhost
+    plugin: caching_sha2_password
+    plugin_auth_string: '{{ percona_root_password }}'
+    salt: '{{ ((''percona-root:'' ~ inventory_hostname) | hash(''sha256''))[:20] }}'
+    sql_log_bin: false
+    state: present
+  when: percona_desired_auth.query_result is not defined
+  no_log: true
+- name: Verify desired administrator authentication
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT 1
+  changed_when: false
+  no_log: true

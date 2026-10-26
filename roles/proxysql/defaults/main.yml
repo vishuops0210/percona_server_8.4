@@ -1,0 +1,23 @@
+---
+percona_root_username: root
+percona_root_password: ''
+percona_socket: /var/run/mysqld/mysqld.sock
+percona_port: 3306
+proxysql_version: 3.0.1
+proxysql_package_url: 'https://repo.proxysql.com/ProxySQL/proxysql-3.0.x/noble/proxysql_{{ proxysql_version }}-ubuntu24_amd64.deb'
+proxysql_package_checksum: ''
+proxysql_install_packages: true
+proxysql_admin_user: admin
+proxysql_admin_password: ''
+proxysql_bootstrap_admin_password: admin
+proxysql_listen_address: 127.0.0.1
+proxysql_port: 6033
+proxysql_writer_hostgroup: 10
+proxysql_reader_hostgroup: 20
+proxysql_monitor_user: proxysql_monitor
+proxysql_monitor_password: ''
+proxysql_users: []
+proxysql_query_rules: []
+proxysql_backup_writer_hostgroup: 30
+proxysql_offline_hostgroup: 40
+proxysql_max_transactions_behind: 100

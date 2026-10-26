@@ -1,0 +1,77 @@
+---
+- name: Inspect local transaction history
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT @@global.gtid_executed AS gtid
+  register: gr_history
+  changed_when: false
+  no_log: true
+- name: Use fresh secondary nodes for initial setup
+  ansible.builtin.assert:
+    that: inventory_hostname == percona_group_seed or gr_history.query_result[0][0].gtid == '' or gr_marker.stat.exists
+    fail_msg: This joining server has existing transactions. Provision a fresh member; data replacement is outside this basic setup.
+- name: Prepare recovery credentials locally without creating replicated transactions
+  block:
+  - name: Allow local recovery-account setup on the offline member
+    community.mysql.mysql_query:
+      login_user: '{{ percona_root_username }}'
+      login_password: '{{ percona_root_password }}'
+      login_unix_socket: '{{ percona_socket }}'
+      config_file: ''
+      query: SET GLOBAL super_read_only=OFF
+    no_log: true
+  - name: Create local recovery account
+    community.mysql.mysql_user:
+      login_user: '{{ percona_root_username }}'
+      login_password: '{{ percona_root_password }}'
+      login_unix_socket: '{{ percona_socket }}'
+      config_file: ''
+      name: '{{ percona_group_user }}'
+      host: '%'
+      plugin: caching_sha2_password
+      plugin_auth_string: '{{ percona_group_password }}'
+      salt: "{{ ('gr-recovery' | hash('sha256'))[:20] }}"
+      priv: '*.*:REPLICATION SLAVE,CONNECTION_ADMIN'
+      sql_log_bin: false
+      state: present
+    no_log: true
+  - name: Save recovery channel credentials
+    community.mysql.mysql_query:
+      login_user: '{{ percona_root_username }}'
+      login_password: '{{ percona_root_password }}'
+      login_unix_socket: '{{ percona_socket }}'
+      config_file: ''
+      query: CHANGE REPLICATION SOURCE TO SOURCE_USER=%s, SOURCE_PASSWORD=%s{{ ', SOURCE_SSL=1' if percona_gr_ssl | bool else '' }} FOR CHANNEL 'group_replication_recovery'
+      positional_args:
+      - '{{ percona_group_user }}'
+      - '{{ percona_group_password }}'
+    no_log: true
+  rescue:
+  - name: Report recovery setup failure without exposing credentials
+    ansible.builtin.fail:
+      msg: >-
+        Recovery setup failed.
+        MySQL error code: {{ (ansible_failed_result.msg | default('') | regex_search('(?<=\()[1-9][0-9]{3}(?=,)')) | default('not reported', true) }}.
+        Category: {% set error = ansible_failed_result.msg | default('') | lower %}
+        {% if 'percona_gr_ssl' in error and 'undefined' in error %}percona_gr_ssl is undefined; update the Group Replication role defaults.
+        {% elif 'unsupported parameters' in error %}unsupported module parameters; install requirements.yml on the controller.
+        {% elif 'password' in error and ('policy' in error or 'requirements' in error) %}password policy rejected the credential.
+        {% elif 'access denied' in error %}database authentication or permission denied.
+        {% elif 'read only' in error or 'read-only' in error or 'read_only' in error %}database rejected a write in read-only mode.
+        {% elif 'privilege' in error %}privilege configuration failed.
+        {% elif 'pymysql' in error or 'cryptography' in error %}required Python dependency is missing or incompatible.
+        {% else %}unclassified; check controller collection versions and the local MySQL error log.
+        {% endif %}
+        Passwords and the original module output remain hidden.
+  always:
+  - name: Keep offline member read-only
+    community.mysql.mysql_query:
+      login_user: '{{ percona_root_username }}'
+      login_password: '{{ percona_root_password }}'
+      login_unix_socket: '{{ percona_socket }}'
+      config_file: ''
+      query: SET GLOBAL super_read_only=ON
+    no_log: true

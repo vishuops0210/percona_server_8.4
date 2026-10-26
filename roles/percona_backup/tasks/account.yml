@@ -1,0 +1,21 @@
+---
+- name: Discover current database writer
+  ansible.builtin.include_role:
+    name: percona_access
+    tasks_from: discover
+- name: Create dedicated backup account on the writer
+  community.mysql.mysql_user:
+    login_user: '{{ hostvars[percona_account_host].percona_root_username | default(percona_root_username) }}'
+    login_password: '{{ hostvars[percona_account_host].percona_admin_password | default(percona_root_password) }}'
+    login_unix_socket: '{{ hostvars[percona_account_host].percona_socket | default(percona_socket) }}'
+    config_file: ''
+    name: '{{ backup_db_user }}'
+    host: localhost
+    plugin: caching_sha2_password
+    plugin_auth_string: '{{ backup_db_password }}'
+    priv: '*.*:BACKUP_ADMIN,PROCESS,RELOAD,LOCK TABLES,REPLICATION CLIENT,REPLICATION SLAVE,SELECT'
+    state: present
+    salt: '{{ ((backup_db_user ~ '':percona-service'') | hash(''sha256''))[:20] }}'
+  no_log: true
+  delegate_to: '{{ percona_account_host }}'
+  throttle: 1
