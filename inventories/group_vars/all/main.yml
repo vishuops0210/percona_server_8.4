@@ -11,6 +11,19 @@ percona_group_password: '{{ vault_replication_password }}'
 percona_max_connections: 150
 percona_databases:
 - name: appdb
+# Day-2 examples, applied with playbooks/operations/access.yml, no restart.
+# Uncomment, fill in, rerun access.yml. Omitting a user does not delete it.
+# To remove a user, list it with state: absent. To drop a database, list it
+# with state: absent AND set percona_allow_database_drop: true.
+# percona_users:
+# - name: appuser2
+#   password: "{{ vault_appuser2_password }}"
+#   priv: "appdb2.*:SELECT,INSERT,UPDATE,DELETE"
+# Dynamic config, applied with playbooks/operations/configure.yml, no restart:
+# percona_max_connections: 150
+# percona_slow_query_time: 2
+# percona_binlog_expire_logs_seconds: 604800
+# Static config changes restart nodes one at a time. See docs/day-2-configuration.md.
 # percona_users: []
 backup_db_password: '{{ vault_backup_password }}'
 backup_schedule_enabled: true

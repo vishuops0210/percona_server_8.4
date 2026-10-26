@@ -39,3 +39,25 @@ SELECT * FROM monitor.mysql_server_group_replication_log ORDER BY time_start_us 
 ```
 
 Keepalived checks the local proxy service and TCP listener. It does not detect every backend or network failure; those scenarios need later acceptance testing. Changing a listener requires a proxy restart.
+
+## Pooling and runtime variables
+
+ProxySQL multiplexing is the connection pooling layer for MySQL: one
+backend connection serves many frontend connections. No second pooler is
+needed, and PgBouncer is for Postgres, not MySQL.
+
+Safe defaults are set in roles/proxysql/defaults/main.yml under
+proxysql_mysql_variables and applied at runtime, with no restart:
+connect timeout 3000 ms, charset utf8mb4, multiplexing on, frontend max
+connections 1000, backend max connections 100 per server, and monitor
+intervals (connect 2000 ms, ping 10000 ms, read-only 1500 ms,
+replication lag 10000 ms) that drive failover detection in seconds.
+
+A proxysql.yml rerun with no listener change does not restart ProxySQL.
+Users, backends, query rules and runtime variables apply through the
+admin API. Only a listener change (proxysql_listen_address) requires a
+restart, because mysql-interfaces is restart-required. Lab test
+2026-10-26: adding and removing a ProxySQL user left ProxySQL uptime
+unchanged and caused 0 app errors. See the
+[lab test report](test-report-2026-10-26.md) and the
+[day-2 configuration guide](day-2-configuration.md).

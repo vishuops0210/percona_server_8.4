@@ -3,10 +3,19 @@
 ```mermaid
 flowchart LR
   V[Inventory values] --> C[configure.yml]
-  C --> F[mysqld.cnf]
+  C --> D{Only dynamic variables changed?}
+  D -->|Yes| P[SET PERSIST, no restart]
+  D -->|No| F[mysqld.cnf]
   F --> R[Restart changed node]
   R --> N[Wait for rejoin, then next node]
 ```
+
+Dynamic variables, applied with no restart: max-connections
+(percona_max_connections), long-query-time (percona_slow_query_time) and
+binlog-expire-logs-seconds (percona_binlog_expire_logs_seconds). Every
+other change uses the rolling restart path. Full detail, including the
+warning about inventory defaults, is in
+[day-2 configuration](day-2-configuration.md).
 
 Edit [shared values](../inventories/group_vars/all/main.yml); use `host_vars/<host>.yml` for node-specific values.
 
@@ -62,6 +71,9 @@ application really opens that many connections, because each one costs memory.
 `sync-binlog = 1` and `innodb-flush-log-at-trx-commit = 1` are fixed for
 durability and are not tunable here.
 
-This initial workflow restarts changed configurations. It is not a live-only tuner or a major-version upgrade command. Check application reconnect behavior before using it on active traffic.
+This workflow is not a live-only tuner or a major-version upgrade command.
+Static config changes still restart nodes one at a time, so check
+application reconnect behavior before using it on active traffic. Dynamic
+variables are the only no-restart path, and they are listed above.
 
 Root credentials must be consistent across the sample group. Recovery credentials are provisioned on offline members; online recovery-password rotation is deferred. Account changes use the currently elected writer rather than a fixed db1.

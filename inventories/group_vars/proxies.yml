@@ -5,6 +5,13 @@ proxysql_users:
   password: '{{ vault_app_password }}'
   priv: appdb.*:SELECT,INSERT,UPDATE,DELETE
 proxysql_query_rules: []
+# ProxySQL runtime variables live in roles/proxysql/defaults/main.yml under
+# proxysql_mysql_variables. Override one here only if you need a different
+# value, for example a faster monitor interval. Do not change
+# proxysql_listen_address on a live single proxy without a maintenance
+# window, it requires a ProxySQL restart.
+# proxysql_mysql_variables:
+#   mysql-monitor_read_only_interval: 1000
 # Enable only after choosing an unused VIP and the correct interface on both proxies.
 proxysql_ha_enabled: false
 proxysql_ha_interface: ens18

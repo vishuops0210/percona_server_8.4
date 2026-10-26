@@ -66,10 +66,12 @@ New to Ansible? Start with [the beginner guide](docs/beginner-guide.md).
 
 - **One writer, always.** Single-primary Group Replication with GTID and row
   binlogs. Writes go to the elected primary; replicas stay read-only.
-- **Automatic failover.** The group detects a dead writer in about 10
-  seconds, elects a new one, and ProxySQL moves traffic to it. Expect roughly
-  15-30 seconds of write outage on a hard crash; in-flight writes fail fast
-  and the application retries.
+- **Automatic failover.** The group elects a new writer and ProxySQL moves
+  traffic to it. Lab test on 2026-10-26, graceful writer stop: 1 failed
+  insert per app, next successful insert about 7 seconds after the last
+  successful insert, apps auto-recovered. For a hard crash, keep the
+  estimate of roughly 15-30 seconds of write outage until a hard-crash
+  drill proves otherwise. See the [lab test report](docs/test-report-2026-10-26.md).
 - **Safe reads after failover.** `group_replication_consistency =
   BEFORE_ON_PRIMARY_FAILOVER` prevents stale reads from a freshly elected
   writer.
@@ -95,9 +97,12 @@ ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/access.
 ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/verify.yml --ask-vault-pass
 ```
 
-Configuration changes restart the affected MySQL node; unchanged nodes are
-untouched. See the [configuration guide](docs/configuration-reference.md)
-and the [operations runbook](docs/operations.md).
+Dynamic configuration changes (max-connections, long-query-time,
+binlog-expire-logs-seconds) apply with no restart. Every other config
+change restarts one node at a time; unchanged nodes are untouched. See
+the [configuration guide](docs/configuration-reference.md), the
+[day-2 configuration guide](docs/day-2-configuration.md) and the
+[operations runbook](docs/operations.md).
 
 ## What this is not
 
@@ -105,14 +110,19 @@ and the [operations runbook](docs/operations.md).
   off-site copy is your backup plus archived binlogs.
 - Not a managed database. You own the VMs, the OS patching and the
   Prometheus/Grafana side.
-- Not validated until you validate it. Complete the [acceptance
-  walkthrough](docs/production-checklist.md) (deployment, rerun, failover
-  drill, restore test) before presenting it as production-ready.
+- Not validated until you validate it. The lab run on 2026-10-26
+  completed deployment, rerun, failover drill and restore test, see the
+  [lab test report](docs/test-report-2026-10-26.md). That validates this
+  lab setup, not your production network, load or maintenance windows.
+  Complete the [acceptance walkthrough](docs/production-checklist.md)
+  for your own deployment before presenting it as production-ready.
 
 ## Documentation
 
 [Deployment runbook](docs/deployment-runbook.md) ·
 [Architecture](docs/architecture.md) ·
+[Day-2 configuration](docs/day-2-configuration.md) ·
+[Lab test report 2026-10-26](docs/test-report-2026-10-26.md) ·
 [Configuration](docs/configuration-reference.md) ·
 [Backups and restore](docs/backup-and-restore.md) ·
 [Monitoring](docs/monitoring.md) ·
@@ -166,4 +176,3 @@ ansible-galaxy collection publish dist/opstree-percona-1.0.0.tar.gz --api-key "$
 Publishing needs access to the `opstree` Galaxy namespace. Complete the
 [acceptance walkthrough](docs/production-checklist.md) before publishing a
 release you call production-ready.
-Hi test passs
