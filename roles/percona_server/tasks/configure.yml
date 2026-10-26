@@ -6,6 +6,17 @@
     owner: mysql
     group: mysql
     mode: '0750'
+- name: Remember the current configuration for a dynamic-only check
+  ansible.builtin.stat:
+    path: '{{ percona_config_file }}'
+  register: percona_config_before_stat
+- name: Save the current configuration to a temporary file
+  ansible.builtin.copy:
+    src: '{{ percona_config_file }}'
+    dest: /tmp/percona-mysqld-before.cnf
+    remote_src: true
+    mode: '0644'
+  when: percona_config_before_stat.stat.exists
 - name: Render MySQL configuration
   ansible.builtin.template:
     src: mysqld.cnf.j2
@@ -13,11 +24,31 @@
     mode: '0644'
     validate: /usr/sbin/mysqld --defaults-file=%s --validate-config
   register: percona_config_render
-- name: Apply configuration when the file changes
+- name: List the configuration lines that changed
+  ansible.builtin.shell: |
+    diff -u /tmp/percona-mysqld-before.cnf '{{ percona_config_file }}' | grep -E '^[+-][^+-]' | cut -d= -f1 | sed -e 's/^[+-]//' -e 's/ *$//' | sort -u
+  register: percona_config_changed_lines
+  changed_when: false
+  when: percona_config_render.changed and percona_config_before_stat.stat.exists
+- name: Decide whether only dynamic variables changed
+  ansible.builtin.set_fact:
+    percona_config_dynamic_only: "{{ percona_config_changed_lines.stdout_lines | map('trim') | list | length > 0 and (percona_config_changed_lines.stdout_lines | map('trim') | list | difference(['max-connections', 'long-query-time', 'binlog-expire-logs-seconds']) | length == 0) }}"
+  when: percona_config_render.changed and percona_config_before_stat.stat.exists
+- name: Apply dynamic variables without a restart
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: "SET PERSIST {{ {'max-connections': 'max_connections', 'long-query-time': 'long_query_time', 'binlog-expire-logs-seconds': 'binlog_expire_logs_seconds'}[item] }} = {{ {'max-connections': percona_max_connections, 'long-query-time': percona_slow_query_time, 'binlog-expire-logs-seconds': percona_binlog_expire_logs_seconds}[item] }}"
+  loop: "{{ percona_config_changed_lines.stdout_lines | map('trim') | list }}"
+  when: percona_config_render.changed and percona_config_dynamic_only | default(false) | bool
+  no_log: true
+- name: Apply configuration with a rolling restart when a static variable changed
   ansible.builtin.service:
     name: mysql
     state: restarted
-  when: percona_config_render.changed
+  when: percona_config_render.changed and not (percona_config_dynamic_only | default(false) | bool)
 - name: Wait for the local database
   community.mysql.mysql_query:
     login_user: '{{ percona_root_username }}'
@@ -49,4 +80,4 @@
   delay: 5
   changed_when: false
   no_log: true
-  when: configured_gr_marker.stat.exists and percona_config_render.changed
+  when: configured_gr_marker.stat.exists and percona_config_render.changed and not (percona_config_dynamic_only | default(false) | bool)
