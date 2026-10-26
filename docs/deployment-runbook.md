@@ -66,6 +66,11 @@ proxy VM goes down, applications lose their endpoint even while the database
 group stays healthy. Choose this for labs, cost-sensitive clients, or when a
 load balancer already sits in front.
 
+If deploy stops at the group join step, rerun the same deploy command.
+A member that is already ONLINE is skipped on rerun, and the remaining
+plays (proxy, backup, exporters) then complete. Do not re-bootstrap a
+group that already has ONLINE members.
+
 ## After deployment
 
 Take the first full backup on db3, then verify:

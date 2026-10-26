@@ -8,9 +8,9 @@
     name: '{{ item.name }}'
     host: '%'
     plugin: caching_sha2_password
-    salt: "{{ (item.name | hash('sha256'))[:20] }}"
-    plugin_auth_string: '{{ item.password }}'
-    priv: '{{ item.priv }}'
+    salt: "{{ (item.name | hash('sha256'))[:20] if item.password is defined else omit }}"
+    plugin_auth_string: '{{ item.password | default(omit) }}'
+    priv: '{{ item.priv | default(omit) }}'
     state: '{{ item.state | default(''present'') }}'
   loop: '{{ proxysql_users }}'
   no_log: true
@@ -24,7 +24,7 @@
     login_port: 6032
     config_file: ''
     username: '{{ item.name }}'
-    password: '{{ item.password }}'
+    password: '{{ item.password | default(omit) }}'
     default_hostgroup: '{{ proxysql_writer_hostgroup }}'
     transaction_persistent: true
     active: true
