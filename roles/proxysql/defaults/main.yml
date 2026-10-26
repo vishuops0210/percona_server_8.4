@@ -21,3 +21,19 @@ proxysql_query_rules: []
 proxysql_backup_writer_hostgroup: 30
 proxysql_offline_hostgroup: 40
 proxysql_max_transactions_behind: 100
+proxysql_backend_max_connections: 100
+# ProxySQL connection pooling and failover detection, applied at runtime, no
+# restart. Multiplexing is the pooling: one backend connection serves many
+# frontend connections, so no second pooler is needed for MySQL.
+# Monitor intervals are why a writer move is noticed in seconds, not minutes.
+proxysql_mysql_variables:
+  mysql-connect_timeout_server: 3000
+  mysql-connect_timeout_server_max: 10000
+  mysql-default_charset: utf8mb4
+  mysql-multiplexing: true
+  mysql-max_connections: 1000
+  mysql-wait_timeout: 28800
+  mysql-monitor_connect_interval: 2000
+  mysql-monitor_ping_interval: 10000
+  mysql-monitor_read_only_interval: 1500
+  mysql-monitor_replication_lag_interval: 10000

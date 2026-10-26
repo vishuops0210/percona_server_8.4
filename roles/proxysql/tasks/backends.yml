@@ -51,7 +51,7 @@
     hostgroup_id: '{{ proxysql_writer_hostgroup }}'
     hostname: '{{ hostvars[item].percona_address | default(hostvars[item].ansible_host | default(item)) }}'
     port: '{{ hostvars[item].percona_port | default(3306) }}'
-    max_connections: 100
+    max_connections: '{{ proxysql_backend_max_connections }}'
     comment: percona-ansible
     state: present
   loop: "{{ groups['gr_members'] }}"
