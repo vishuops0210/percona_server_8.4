@@ -16,8 +16,8 @@ changed, it applies them with SET PERSIST and skips the restart:
 | long-query-time | percona_slow_query_time |
 | binlog-expire-logs-seconds | percona_binlog_expire_logs_seconds |
 
-Tested: max_connections 250 to 300 applied with 0 restarts and 0 new app
-errors, running value and file value both 300 on all nodes.
+Example: changing max_connections applies with no restart, and the
+running value and file value stay in sync on all nodes.
 
 ```bash
 ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/configure.yml \
@@ -31,10 +31,9 @@ a change. Update the inventory default first, or pass the intended value.
 ## Static variables: rolling restart, brief app errors
 
 Every other config change uses the old path: one node at a time, wait for
-ONLINE, then the next node. Before the dynamic fix, a max_connections
-change caused 2 lost-connection errors per app across the rolling
-restart. Apps with retry logic recovered on their own, but a restart is
-still a disruption. Plan static changes for a maintenance window.
+ONLINE, then the next node. A restart can drop in-flight connections, so
+apps need retry logic, and static changes should be planned for a
+maintenance window.
 
 Deliberately not in the dynamic set: InnoDB buffer pool size (heavy
 resize), binlog format, GTID settings, read-only flags (Group Replication

@@ -56,8 +56,6 @@ replication lag 10000 ms) that drive failover detection in seconds.
 A proxysql.yml rerun with no listener change does not restart ProxySQL.
 Users, backends, query rules and runtime variables apply through the
 admin API. Only a listener change (proxysql_listen_address) requires a
-restart, because mysql-interfaces is restart-required. Lab test
-2026-10-26: adding and removing a ProxySQL user left ProxySQL uptime
-unchanged and caused 0 app errors. See the
-[lab test report](test-report-2026-10-26.md) and the
-[day-2 configuration guide](day-2-configuration.md).
+restart, because mysql-interfaces is restart-required. See the
+[day-2 configuration guide](day-2-configuration.md) for the user add and
+remove flow.

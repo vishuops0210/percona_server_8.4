@@ -4,22 +4,19 @@ Collection: opstree.percona, version 1.0.0, MIT license, dependencies
 community.mysql 4.0.1 and community.proxysql 1.7.0. Galaxy metadata is in
 galaxy.yml at the repo root.
 
-## Status on 2026-10-26
+## Pre-publish checklist
 
-- Build verified: ansible-galaxy collection build succeeds and produces
+Before publishing, check these, in order:
+
+- Build: ansible-galaxy collection build produces
   opstree-percona-1.0.0.tar.gz.
-- Tarball verified: includes the tested code, the new ProxySQL variables
-  task, and the new docs (test report, day-2 configuration). It excludes
-  .git, dist, LOCAL-RUN.md, vault files and test inventories. No secrets
-  in the tarball.
-- Install verified: installing the built tarball with --no-deps succeeds
-  and ansible-galaxy collection list shows opstree.percona 1.0.0.
-- Local test suite verified on the lab controller: YAML, module arguments,
-  playbook syntax, templates, backup tests and documentation links all pass.
-- Dependency fetch from galaxy.ansible.com failed on the assistant VM
-  with a network read error. That is a VM network issue, not a tarball
-  issue. Dependencies are already installed on the lab controller, and a
-  normal Galaxy install resolves them automatically.
+- Tarball: check it includes the code and docs you intend to ship, and
+  excludes .git, dist, LOCAL-RUN.md, vault files and test inventories.
+  No secrets in the tarball, ever.
+- Install: installing the built tarball succeeds and ansible-galaxy
+  collection list shows opstree.percona 1.0.0.
+- Tests: run tests/check.py, which covers YAML, module arguments,
+  playbook syntax, templates, backup tests and documentation links.
 
 ## Do not publish yet: two blockers
 
