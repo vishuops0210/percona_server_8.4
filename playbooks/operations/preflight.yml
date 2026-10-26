@@ -52,6 +52,12 @@
       that: groups['gr_members'] | map('extract', hostvars) | map(attribute='percona_server_id') | unique | length == groups['gr_members'] | length
       fail_msg: percona_server_id must be unique across group members.
     run_once: true
+  - name: Require the replication password to fit MySQL's 32 character limit
+    ansible.builtin.assert:
+      that: percona_group_password | length <= 32
+      fail_msg: percona_group_password is longer than 32 characters. MySQL rejects replication passwords over 32 characters with error 3056, so the group recovery channel cannot be set. Use 32 characters or fewer.
+    run_once: true
+    no_log: true
   - name: Probe SSH reachability between members
     ansible.builtin.wait_for:
       host: "{{ hostvars[item].ansible_host | default(item) }}"

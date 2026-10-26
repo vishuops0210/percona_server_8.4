@@ -47,7 +47,7 @@
   - name: Require exactly one online writer in the writer hostgroup
     ansible.builtin.assert:
       that:
-      - verify_backends.query_result[0] | selectattr('hostgroup_id', 'equalto', proxysql_writer_hostgroup | default(10) | int) | selectattr('status', 'equalto', 'ONLINE') | list | length == 1
+      - verify_backends.query_result[0] | selectattr('status', 'equalto', 'ONLINE') | map(attribute='hostgroup_id') | map('string') | select('equalto', proxysql_writer_hostgroup | default(10) | string) | list | length == 1
       fail_msg: Writer hostgroup does not hold exactly one online backend. See docs/troubleshooting.md.
   - name: Prove application login through the proxy listener
     community.mysql.mysql_query:
