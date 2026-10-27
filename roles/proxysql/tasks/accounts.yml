@@ -19,6 +19,33 @@
   no_log: true
   delegate_to: '{{ percona_account_host }}'
   throttle: 1
+- name: List host-specific proxy monitor accounts
+  community.mysql.mysql_query:
+    login_user: '{{ hostvars[percona_account_host].percona_root_username | default(percona_root_username) }}'
+    login_password: '{{ hostvars[percona_account_host].percona_admin_password | default(percona_root_password) }}'
+    login_unix_socket: '{{ hostvars[percona_account_host].percona_socket | default(percona_socket) }}'
+    config_file: ''
+    query: SELECT host FROM mysql.user WHERE user=%s AND host != '%'
+    positional_args: ['{{ proxysql_monitor_user }}']
+  register: proxy_monitor_specific_hosts
+  changed_when: false
+  no_log: true
+  delegate_to: '{{ percona_account_host }}'
+  throttle: 1
+- name: Remove host-specific proxy monitor accounts so the % account is used
+  community.mysql.mysql_user:
+    login_user: '{{ hostvars[percona_account_host].percona_root_username | default(percona_root_username) }}'
+    login_password: '{{ hostvars[percona_account_host].percona_admin_password | default(percona_root_password) }}'
+    login_unix_socket: '{{ hostvars[percona_account_host].percona_socket | default(percona_socket) }}'
+    config_file: ''
+    name: '{{ proxysql_monitor_user }}'
+    host: '{{ item.host }}'
+    state: absent
+  loop: '{{ proxy_monitor_specific_hosts.query_result[0] | default([]) }}'
+  no_log: true
+  delegate_to: '{{ percona_account_host }}'
+  throttle: 1
+  when: proxy_monitor_specific_hosts.query_result is defined and proxy_monitor_specific_hosts.query_result[0] | length > 0
 - name: Set restricted proxy monitor credentials
   community.proxysql.proxysql_global_variables:
     login_user: '{{ proxysql_admin_user }}'

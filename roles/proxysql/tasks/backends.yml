@@ -41,6 +41,37 @@
     proxy_gr.query_result[0][0].active | int != 1 or
     proxy_gr.query_result[0][0].writer_is_also_reader | int != 1
   no_log: true
+- name: Build expected ProxySQL backend hostnames from inventory
+  ansible.builtin.set_fact:
+    proxy_expected_backends: "{{ (groups['gr_members'] | map('extract', hostvars) | map(attribute='ansible_host') | list) + (groups['gr_members'] | map('extract', hostvars) | selectattr('percona_address', 'defined') | map(attribute='percona_address') | list) | unique }}"
+  no_log: true
+  when: groups.get('gr_members', []) | length > 0
+- name: Read role-managed ProxySQL backend servers
+  community.mysql.mysql_query:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    query: SELECT hostgroup_id, hostname, port FROM mysql_servers WHERE comment='percona-ansible'
+  register: proxy_managed_servers
+  changed_when: false
+  no_log: true
+  when: groups.get('gr_members', []) | length > 0
+- name: Remove ProxySQL backends no longer in inventory
+  community.proxysql.proxysql_backend_servers:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    hostgroup_id: '{{ item.hostgroup_id }}'
+    hostname: '{{ item.hostname }}'
+    port: '{{ item.port }}'
+    state: absent
+  loop: '{{ proxy_managed_servers.query_result[0] | default([]) }}'
+  no_log: true
+  when: item.hostname not in proxy_expected_backends
 - name: Register database members
   community.proxysql.proxysql_backend_servers:
     login_user: '{{ proxysql_admin_user }}'
