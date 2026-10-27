@@ -9,6 +9,16 @@ flowchart LR
 
 Uses native Group Replication monitoring and caching_sha2_password accounts. All traffic starts on the writer; read rules are optional. Both proxies receive the same inventory settings. Admin listens on localhost:6032.
 
+Normal application users go here, in `proxysql_users` in
+`inventories/group_vars/proxies.yml`, run with `proxysql.yml`. This role
+creates both the MySQL account and the ProxySQL credential for each user,
+so one entry gives the user cluster benefits: one ProxySQL endpoint on
+port 6033, automatic writer failover when the PRIMARY changes, and
+connection pooling through multiplexing. A user created only with
+`access.yml` (`percona_users`) does not get these benefits and is denied
+by ProxySQL, even with the correct password. Do not put the same account
+in both lists.
+
 DNS names are supported for inventory hosts. The monitor and application
 accounts use the `%` host wildcard: the database servers keep
 `skip-name-resolve = ON`, so account hosts never depend on DNS, and the

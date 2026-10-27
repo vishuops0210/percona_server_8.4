@@ -25,6 +25,15 @@ Two user lists exist, choose one per account, never both:
   admin, direct client): use `percona_users` below and run `access.yml`.
   That role creates only the MySQL account, no ProxySQL credential.
 
+Normal application users: if you want cluster benefits, use
+`proxysql_users` and `proxysql.yml`. Cluster benefits means one ProxySQL
+endpoint on port 6033, automatic writer failover when the PRIMARY changes,
+and connection pooling through multiplexing. A user created only with
+`access.yml` (`percona_users`) gets none of these benefits: it works only
+by direct connection to one MySQL node, and ProxySQL will deny it with an
+access denied error, even with the correct password, because ProxySQL does
+not know that user.
+
 Edit `inventories/group_vars/all/main.yml`; keep passwords in encrypted `vault.yml`:
 
 ```yaml

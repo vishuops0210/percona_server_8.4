@@ -64,10 +64,21 @@ ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/access.
 - Tables must be created by root or an admin account. Application users
   in the examples have SELECT, INSERT, UPDATE, DELETE only, no CREATE.
 
-For app traffic through ProxySQL, two steps are needed, in order:
+For app traffic through ProxySQL, two different objects are needed, in
+order:
 
-1. Create the MySQL account with access.yml.
-2. Add the matching ProxySQL credential with proxysql.yml.
+1. Create the database with access.yml (`percona_databases`).
+2. Create the app user with proxysql.yml (`proxysql_users`).
+
+`proxysql.yml` creates both the MySQL account and the ProxySQL credential
+for that user, so do not also add the same user to `percona_users`.
+Normal application users must go this way to get cluster benefits: one
+ProxySQL endpoint on port 6033, automatic writer failover when the PRIMARY
+changes, and connection pooling through multiplexing. A user created only
+with `access.yml` (`percona_users`) gets none of these benefits and is
+denied by ProxySQL, even with the correct password. Direct users created
+with `access.yml` are only for reporting, admin, and other direct MySQL
+work, not for normal app traffic.
 
 Removing a ProxySQL credential also needs proxysql.yml with that user
 listed as state absent. ProxySQL users are not removed automatically when

@@ -155,6 +155,13 @@ source of confusion, so read it once and it is clear:
 - Role defaults with `[]` and commented examples are just the format, not
   active users. Group_vars override them, and group_vars win.
 
+Normal application users: if you want cluster benefits, use
+`proxysql_users` and `proxysql.yml`. Cluster benefits means one ProxySQL
+endpoint on port 6033, automatic writer failover when the PRIMARY changes,
+and connection pooling through multiplexing. A user created only with
+`access.yml` (`percona_users`) gets none of these benefits and is denied
+by ProxySQL, even with the correct password.
+
 ## Common pitfalls, before you hit them
 
 - Replication password: at most 32 characters. Longer passwords fail Group
