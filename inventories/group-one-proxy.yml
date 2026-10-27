@@ -10,7 +10,7 @@ all:
         gr_members:
           hosts:
             db1:
-              ansible_host: 172.31.15.143
+              ansible_host: 172.31.1.75
               percona_server_id: 101
             db2:
               ansible_host: 172.31.4.249
