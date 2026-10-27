@@ -46,6 +46,13 @@
     config_file: ''
     query: START GROUP_REPLICATION
   when: not gr_online and not (inventory_hostname == percona_group_seed and gr_online_hosts | length == 0)
+  # Transient GCS failures on join, seen on db3 in earlier runs, clear in
+  # seconds and succeed on rerun. Retry here so one transient failure does
+  # not stop the whole deploy. A real failure still fails after 5 attempts.
+  register: gr_join
+  until: gr_join is succeeded
+  retries: 5
+  delay: 10
   no_log: true
 - name: Wait for this member to become online
   community.mysql.mysql_query:
