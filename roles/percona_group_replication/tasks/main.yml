@@ -75,7 +75,6 @@
   until: gr_join is succeeded
   retries: 5
   delay: 10
-  no_log: true
 - name: Wait for this member to become online
   community.mysql.mysql_query:
     login_user: '{{ percona_root_username }}'
