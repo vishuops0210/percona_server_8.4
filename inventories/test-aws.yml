@@ -1,0 +1,34 @@
+---
+# Lab test inventory for the 2026-10-27 5-node cluster: 3 database members,
+# 1 ProxySQL server, and the app VM as Ansible controller (controller is not
+# a managed host, so it is not listed here). Private VPC IPs only.
+# Lab-specific file, do not merge this into the OT-OSM repo.
+all:
+  children:
+    database:
+      children:
+        gr_members:
+          hosts:
+            db1:
+              ansible_host: 172.31.5.226
+              percona_server_id: 101
+            db2:
+              ansible_host: 172.31.13.165
+              percona_server_id: 102
+            db3:
+              ansible_host: 172.31.12.45
+              percona_server_id: 103
+    proxies:
+      hosts:
+        proxy1:
+          ansible_host: 172.31.6.122
+    backup_sources:
+      hosts:
+        db3: {}
+    monitoring_targets:
+      hosts:
+        db1: {}
+        db2: {}
+        db3: {}
+    restore_targets:
+      hosts: {}
