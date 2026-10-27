@@ -25,10 +25,11 @@ percona_databases:
 # percona_binlog_expire_logs_seconds: 604800
 # Static config changes restart nodes one at a time. See docs/day-2-configuration.md.
 # percona_users: 
-#   - name: appuser
-#     host: "192.0.2.50"
-#     password: "{{ vault_appuser_password }}"
-#     priv: "testdb.*:ALL" 
+  - name: appuser
+    host: "192.0.2.50"
+    password: "{{ vault_appuser_password }}"
+    priv: "testdb.*:ALL" 
+
 
 backup_db_password: '{{ vault_backup_password }}'
 backup_schedule_enabled: true
