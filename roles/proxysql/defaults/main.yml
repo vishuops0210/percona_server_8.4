@@ -16,10 +16,10 @@ proxysql_writer_hostgroup: 10
 proxysql_reader_hostgroup: 20
 proxysql_monitor_user: proxysql_monitor
 proxysql_monitor_password: ''
-proxysql_users: []
-  # - name: testuser2
-  #   password: '{{ vault_testuser2_password }}'
-  #   priv: 'testdb2.*:SELECT,INSERT,UPDATE,DELETE'
+proxysql_users:
+  - name: testuser1
+    password: "{{ vault_testuser1_password }}"
+    priv: "testdb.*:ALL" 
 proxysql_query_rules: []
 proxysql_backup_writer_hostgroup: 30
 proxysql_offline_hostgroup: 40
