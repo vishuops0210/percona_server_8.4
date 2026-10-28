@@ -10,18 +10,18 @@ all:
         gr_members:
           hosts:
             db1:
-              ansible_host: 172.31.1.75
+              ansible_host: 172.31.17.116
               percona_server_id: 101
             db2:
-              ansible_host: 172.31.4.249
+              ansible_host: 172.31.19.148
               percona_server_id: 102
             db3:
-              ansible_host: 172.31.4.21
+              ansible_host: 172.31.17.156
               percona_server_id: 103
     proxies:
       hosts:
         proxy1:
-          ansible_host: 172.31.4.181
+          ansible_host: 172.31.17.181
     backup_sources:
       hosts:
         db3: {}
