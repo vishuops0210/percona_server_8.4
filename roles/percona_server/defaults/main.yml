@@ -44,3 +44,43 @@ percona_group_password: ''
 # STOP/START GROUP_REPLICATION, so decide before the first bootstrap.
 percona_gr_ssl: false
 percona_address: '{{ ansible_host | default(inventory_hostname) }}'
+
+# Production tuning, commented by design.
+# These are the variables teams change most in production.
+# They are commented out, so this patch changes no behaviour by itself.
+# To use one, set it in inventories/group_vars/all/main.yml, not here.
+# The template only renders a variable when it is set.
+# Already active elsewhere, so not repeated here:
+#   percona_max_connections (set in group_vars, currently 200, NO RESTART)
+#   percona_innodb_buffer_pool_size (auto, 50 percent of RAM, RESTART REQUIRED)
+#   percona_slow_query_time (2, NO RESTART)
+#   percona_binlog_expire_logs_seconds (604800, NO RESTART)
+#
+# NO RESTART in this role: applied with SET PERSIST, no MySQL restart.
+# All values below are plain numbers, so the SET PERSIST path handles them.
+# percona_wait_timeout: 28800
+# percona_interactive_timeout: 28800
+# percona_thread_cache_size: 50
+# percona_table_open_cache: 4000
+# percona_innodb_io_capacity: 10000
+# percona_innodb_io_capacity_max: 20000
+# percona_innodb_lock_wait_timeout: 50
+#
+# RESTART REQUIRED in this role: rolling restart, one node at a time.
+# Size values like 64M and 2G are restart only on purpose: the config file
+# accepts them, but SET PERSIST needs a plain number, so 64M as a SET
+# value would fail. A restart is the safe path for size variables.
+# percona_innodb_buffer_pool_instances: 8
+#   Leave unset in 8.4 unless the pool is large. 8.4 auto calculates it
+#   when unset, and each instance should be at least 1G.
+# percona_innodb_redo_log_capacity: 2G
+# percona_innodb_log_buffer_size: 64M
+# percona_innodb_flush_method: O_DIRECT
+# percona_max_allowed_packet: 64M
+# percona_tmp_table_size: 64M
+# percona_max_heap_table_size: 64M
+#   Keep tmp_table_size and max_heap_table_size equal.
+# percona_sort_buffer_size: 2M
+#   Per session memory. It multiplies by connections, raise it slowly.
+# percona_join_buffer_size: 2M
+#   Per session memory. It multiplies by connections, raise it slowly.

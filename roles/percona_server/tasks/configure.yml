@@ -32,7 +32,7 @@
   when: percona_config_render.changed and percona_config_before_stat.stat.exists
 - name: Decide whether only dynamic variables changed
   ansible.builtin.set_fact:
-    percona_config_dynamic_only: "{{ percona_config_changed_lines.stdout_lines | map('trim') | list | length > 0 and (percona_config_changed_lines.stdout_lines | map('trim') | list | difference(['max-connections', 'long-query-time', 'binlog-expire-logs-seconds']) | length == 0) }}"
+    percona_config_dynamic_only: "{{ percona_config_changed_lines.stdout_lines | map('trim') | list | length > 0 and (percona_config_changed_lines.stdout_lines | map('trim') | list | difference(['max-connections', 'long-query-time', 'binlog-expire-logs-seconds', 'wait-timeout', 'interactive-timeout', 'thread-cache-size', 'table-open-cache', 'innodb-io-capacity', 'innodb-io-capacity-max', 'innodb-lock-wait-timeout']) | length == 0) }}"
   when: percona_config_render.changed and percona_config_before_stat.stat.exists
 - name: Apply dynamic variables without a restart
   community.mysql.mysql_query:
@@ -40,7 +40,7 @@
     login_password: '{{ percona_root_password }}'
     login_unix_socket: '{{ percona_socket }}'
     config_file: ''
-    query: "SET PERSIST {{ {'max-connections': 'max_connections', 'long-query-time': 'long_query_time', 'binlog-expire-logs-seconds': 'binlog_expire_logs_seconds'}[item] }} = {{ {'max-connections': percona_max_connections, 'long-query-time': percona_slow_query_time, 'binlog-expire-logs-seconds': percona_binlog_expire_logs_seconds}[item] }}"
+    query: "SET PERSIST {{ {'max-connections': 'max_connections', 'long-query-time': 'long_query_time', 'binlog-expire-logs-seconds': 'binlog_expire_logs_seconds', 'wait-timeout': 'wait_timeout', 'interactive-timeout': 'interactive_timeout', 'thread-cache-size': 'thread_cache_size', 'table-open-cache': 'table_open_cache', 'innodb-io-capacity': 'innodb_io_capacity', 'innodb-io-capacity-max': 'innodb_io_capacity_max', 'innodb-lock-wait-timeout': 'innodb_lock_wait_timeout'}[item] }} = {{ {'max-connections': percona_max_connections, 'long-query-time': percona_slow_query_time, 'binlog-expire-logs-seconds': percona_binlog_expire_logs_seconds, 'wait-timeout': percona_wait_timeout | default(28800), 'interactive-timeout': percona_interactive_timeout | default(28800), 'thread-cache-size': percona_thread_cache_size | default(50), 'table-open-cache': percona_table_open_cache | default(4000), 'innodb-io-capacity': percona_innodb_io_capacity | default(10000), 'innodb-io-capacity-max': percona_innodb_io_capacity_max | default(20000), 'innodb-lock-wait-timeout': percona_innodb_lock_wait_timeout | default(50)}[item] }}"
   loop: "{{ percona_config_changed_lines.stdout_lines | map('trim') | list }}"
   when: percona_config_render.changed and percona_config_dynamic_only | default(false) | bool
   no_log: true

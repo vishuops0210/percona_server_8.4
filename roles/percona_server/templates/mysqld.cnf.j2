@@ -26,6 +26,57 @@ max-connections = {{ percona_max_connections }}
 slow-query-log = ON
 slow-query-log-file = /var/log/mysql/slow.log
 long-query-time = {{ percona_slow_query_time }}
+{# Production tuning, rendered only when set in group_vars. #}
+{# NO RESTART variables: applied with SET PERSIST. #}
+{% if percona_wait_timeout is defined %}
+wait-timeout = {{ percona_wait_timeout }}
+{% endif %}
+{% if percona_interactive_timeout is defined %}
+interactive-timeout = {{ percona_interactive_timeout }}
+{% endif %}
+{% if percona_thread_cache_size is defined %}
+thread-cache-size = {{ percona_thread_cache_size }}
+{% endif %}
+{% if percona_table_open_cache is defined %}
+table-open-cache = {{ percona_table_open_cache }}
+{% endif %}
+{% if percona_innodb_io_capacity is defined %}
+innodb-io-capacity = {{ percona_innodb_io_capacity }}
+{% endif %}
+{% if percona_innodb_io_capacity_max is defined %}
+innodb-io-capacity-max = {{ percona_innodb_io_capacity_max }}
+{% endif %}
+{% if percona_innodb_lock_wait_timeout is defined %}
+innodb-lock-wait-timeout = {{ percona_innodb_lock_wait_timeout }}
+{% endif %}
+{# RESTART REQUIRED variables: rolling restart, one node at a time. #}
+{% if percona_innodb_buffer_pool_instances is defined %}
+innodb-buffer-pool-instances = {{ percona_innodb_buffer_pool_instances }}
+{% endif %}
+{% if percona_innodb_redo_log_capacity is defined %}
+innodb-redo-log-capacity = {{ percona_innodb_redo_log_capacity }}
+{% endif %}
+{% if percona_innodb_log_buffer_size is defined %}
+innodb-log-buffer-size = {{ percona_innodb_log_buffer_size }}
+{% endif %}
+{% if percona_innodb_flush_method is defined %}
+innodb-flush-method = {{ percona_innodb_flush_method }}
+{% endif %}
+{% if percona_max_allowed_packet is defined %}
+max-allowed-packet = {{ percona_max_allowed_packet }}
+{% endif %}
+{% if percona_tmp_table_size is defined %}
+tmp-table-size = {{ percona_tmp_table_size }}
+{% endif %}
+{% if percona_max_heap_table_size is defined %}
+max-heap-table-size = {{ percona_max_heap_table_size }}
+{% endif %}
+{% if percona_sort_buffer_size is defined %}
+sort-buffer-size = {{ percona_sort_buffer_size }}
+{% endif %}
+{% if percona_join_buffer_size is defined %}
+join-buffer-size = {{ percona_join_buffer_size }}
+{% endif %}
 log-error = /var/log/mysql/error.log
 require-secure-transport = {{ 'ON' if percona_require_secure_transport | bool else 'OFF' }}
 {% if percona_tls_ca %}
