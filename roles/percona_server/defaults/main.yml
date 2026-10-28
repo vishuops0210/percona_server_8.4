@@ -26,7 +26,7 @@ percona_innodb_buffer_pool_size: >-
   {%- set step_mb = 1024 if target_mb >= 1024 else 128 -%}
   {{ [((target_mb / step_mb) | int) * step_mb, 128] | max }}M
 # Connection/query concurrency is workload-dependent, not a percentage of RAM.
-percona_max_connections: 150
+percona_max_connections: 200
 percona_slow_query_time: 2
 
 percona_tls_ca: ''
