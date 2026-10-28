@@ -10,7 +10,7 @@ percona_group_seed: db1
 percona_group_password: '{{ vault_replication_password }}'
 percona_max_connections: 150
 percona_databases:
-  - name: testdb
+  # - name: testdb
   # - name: testdb2
 # Day-2 examples, applied with playbooks/operations/access.yml, no restart.
 # Uncomment, fill in, rerun access.yml. Omitting a user does not delete it.
