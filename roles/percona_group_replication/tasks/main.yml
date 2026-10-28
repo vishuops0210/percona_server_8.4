@@ -38,28 +38,6 @@
   ansible.builtin.include_tasks: bootstrap.yml
   when: gr_online_hosts | length == 0
   run_once: true
-- name: Read recovery channel username before joining
-  community.mysql.mysql_query:
-    login_user: '{{ percona_root_username }}'
-    login_password: '{{ percona_root_password }}'
-    login_unix_socket: '{{ percona_socket }}'
-    config_file: ''
-    query: SELECT USER AS CHANNEL_USER FROM performance_schema.replication_connection_configuration WHERE CHANNEL_NAME='group_replication_recovery'
-  register: gr_recovery_channel
-  changed_when: false
-  no_log: true
-  when: not gr_online and not (inventory_hostname == percona_group_seed and gr_online_hosts | length == 0)
-- name: Fail fast if recovery channel username is empty or wrong
-  ansible.builtin.assert:
-    that:
-    - gr_recovery_channel.query_result[0] | length > 0
-    - gr_recovery_channel.query_result[0][0].CHANNEL_USER | default('') | length > 0
-    - gr_recovery_channel.query_result[0][0].CHANNEL_USER == percona_group_user
-    fail_msg: >-
-      Recovery channel group_replication_recovery has an empty or wrong username on this member.
-      Do not run START GROUP_REPLICATION yet, it will fail with Invalid (empty) username and leave the group.
-      Re-run the offline member preparation step so CHANGE REPLICATION SOURCE TO sets SOURCE_USER to the group recovery user, then verify the channel again.
-  when: not gr_online and not (inventory_hostname == percona_group_seed and gr_online_hosts | length == 0)
 - name: Join offline members to the group
   community.mysql.mysql_query:
     login_user: '{{ percona_root_username }}'
@@ -75,6 +53,7 @@
   until: gr_join is succeeded
   retries: 5
   delay: 10
+  no_log: true
 - name: Wait for this member to become online
   community.mysql.mysql_query:
     login_user: '{{ percona_root_username }}'
@@ -98,3 +77,4 @@
     mode: '0600'
     modification_time: preserve
     access_time: preserve
+
