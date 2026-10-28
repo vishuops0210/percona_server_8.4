@@ -8,7 +8,7 @@ percona_bind_address: '0.0.0.0'
 percona_group_name: c17fdd55-1f5f-4a01-8799-b3e729163ff3
 percona_group_seed: db1
 percona_group_password: '{{ vault_replication_password }}'
-percona_max_connections: 150
+percona_max_connections: 200
 percona_databases: 
   - name: testdb
   # - name: testdb2
