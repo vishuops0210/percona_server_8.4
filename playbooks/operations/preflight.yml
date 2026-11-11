@@ -16,9 +16,10 @@
       fail_msg: This setup supports Ubuntu 22.04 or 24.04 amd64 only.
   - name: Require enough memory on database nodes
     ansible.builtin.assert:
-      # Allow nominal 4 GB VMs whose OS-visible memory is below 4096 MiB.
-      that: ansible_facts.memtotal_mb | int >= 3584
-      fail_msg: "Detected {{ ansible_facts.memtotal_mb }} MiB RAM. This preflight requires at least 3584 MiB OS-visible memory for a nominal 4 GB VM."
+      # Default 3584 MiB for a nominal 4 GB VM. Lab inventories may lower
+      # percona_min_memory_mb, for example 1792 for 2 GB lab VMs.
+      that: ansible_facts.memtotal_mb | int >= (percona_min_memory_mb | default(3584))
+      fail_msg: "Detected {{ ansible_facts.memtotal_mb }} MiB RAM. This preflight requires at least {{ percona_min_memory_mb | default(3584) }} MiB OS-visible memory."
     when: "'gr_members' in group_names or 'primary' in group_names"
   - name: Require free disk for data and backups
     ansible.builtin.assert:
@@ -32,7 +33,7 @@
       that:
       - percona_root_password | length > 0
       - percona_group_password | length > 0
-      fail_msg: Fill inventories/group_vars/all/vault.yml from vault.example.yml first.
+      fail_msg: Fill inventories/group_vars/all/vault.yml first.
     no_log: true
     when: "'gr_members' in group_names or 'primary' in group_names"
 - name: Check group identity

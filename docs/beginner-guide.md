@@ -48,7 +48,7 @@ Expect `pong`. Fix SSH/IP problems before deploying. Use the matching inventory 
 
 Edit `inventories/group_vars/all/main.yml`: SSH username, database names, connection limit and backup settings.
 
-Open `inventories/group_vars/all/vault.example.yml` for the password key names, then:
+Open the encrypted `inventories/group_vars/all/vault.yml` with `ansible-vault view inventories/group_vars/all/vault.yml`, then:
 
 ```bash
 # New password file:

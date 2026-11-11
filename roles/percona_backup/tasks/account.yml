@@ -10,10 +10,10 @@
     login_unix_socket: '{{ hostvars[percona_account_host].percona_socket | default(percona_socket) }}'
     config_file: ''
     name: '{{ backup_db_user }}'
-    host: localhost
+    host: '%'
     plugin: caching_sha2_password
     plugin_auth_string: '{{ backup_db_password }}'
-    priv: '*.*:BACKUP_ADMIN,PROCESS,RELOAD,LOCK TABLES,REPLICATION CLIENT,REPLICATION SLAVE,SELECT'
+    priv: '*.*:SELECT,SHOW VIEW,TRIGGER,EVENT,LOCK TABLES,RELOAD,PROCESS,REPLICATION CLIENT,REPLICATION SLAVE'
     state: present
     salt: '{{ ((backup_db_user ~ '':percona-service'') | hash(''sha256''))[:20] }}'
   no_log: true

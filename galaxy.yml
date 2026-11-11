@@ -38,4 +38,4 @@ build_ignore:
 - '**/.env*'
 - '*.tar.gz'
 - dist
-- LOCAL-RUN.md
+- inventories/local-dc.yml

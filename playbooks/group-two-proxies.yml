@@ -31,5 +31,3 @@
       name: percona_access
     run_once: true
 - import_playbook: operations/proxysql.yml
-- import_playbook: operations/backup.yml
-- import_playbook: operations/monitoring.yml

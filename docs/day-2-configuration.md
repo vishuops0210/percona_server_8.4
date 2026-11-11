@@ -40,6 +40,8 @@ resize), binlog format, GTID settings, read-only flags (Group Replication
 manages them), require-secure-transport (could break non-TLS apps), and
 all group_replication variables.
 
+Fixed paths, not variables: datadir is /var/lib/mysql and binlogs live inside it (log-bin = mysql-bin). There is no inventory variable for either path, by design. Moving the data or binlog directory on a running group member breaks replication, and preflight and restore both assume /var/lib/mysql. Do not make these variables.
+
 ## Database and user changes: no restart
 
 Use access.yml on the discovered writer. It never restarts MySQL.

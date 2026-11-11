@@ -7,6 +7,7 @@ not two groups you deploy together.
 |---|---|---|
 | Group Replication + one ProxySQL | `group-one-proxy.yml` | 3 databases + 1 ProxySQL |
 | Group Replication + two ProxySQL | `group-two-proxies.yml` | 3 databases + 2 ProxySQL |
+| Group Replication + one ProxySQL, local DC lab | `local-dc.yml` | 3 databases + 1 ProxySQL, 2 GB VMs |
 
 Replace `ansible_host` with your VM IPs. `db1`, `db2`, `db3`, `proxy1` and
 `proxy2` are labels for those VMs. Keep database server IDs unique.
@@ -38,8 +39,7 @@ create another VM.
 ## Shared settings
 
 - `group_vars/all/main.yml`: SSH user, database settings, database names and backup settings.
-- `group_vars/all/vault.yml`: your encrypted passwords; never distributed in the collection.
-- `group_vars/all/vault.example.yml`: password key names to fill.
+- `group_vars/all/vault.yml`: your encrypted passwords, never distributed in the collection; edit with `ansible-vault edit inventories/group_vars/all/vault.yml`.
 - `group_vars/proxies.yml`: application accounts and the optional two-proxy VIP.
 
 These settings apply to whichever inventory you choose. For a different

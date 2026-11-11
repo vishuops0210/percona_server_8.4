@@ -2,7 +2,7 @@
 
 Ansible automation that deploys a production-style MySQL high-availability
 stack: three Percona Server 8.4 nodes in single-primary Group Replication,
-fronted by ProxySQL, with XtraBackup-based backups and Prometheus exporters
+fronted by ProxySQL, with mysqldump backups from the ProxySQL host and Prometheus exporters
 included. Ubuntu 22.04 or 24.04 amd64 throughout.
 
 Start here if you are new to Ansible: read
@@ -93,15 +93,18 @@ Changing the group UUID after deploy is not supported.
 **4. Check, deploy, verify** (same inventory every time):
 
 ```bash
-ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/preflight.yml --ask-vault-pass
-ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/preflight.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/backup.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/monitoring.yml --ask-vault-pass --ask-become-pass
 ```
 
-After deploy, take the first full backup on db3, then verify. The backup
-role installs the daily cron, it does not run the first backup for you:
+Three playbooks, in order: cluster, backup, monitoring. After deploy, take
+the first full backup on the ProxySQL host, then verify. The backup role
+installs the daily cron, it does not run the first backup for you:
 
 ```bash
-sudo /usr/local/bin/percona-backup backup full   # on db3
+sudo /usr/local/bin/percona-backup backup full   # on the ProxySQL host
 ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/verify.yml --ask-vault-pass
 ```
 
@@ -120,9 +123,8 @@ rotated binlog archived, and exporters healthy.
 - **Safe reads after failover.** `group_replication_consistency =
   BEFORE_ON_PRIMARY_FAILOVER` prevents stale reads from a freshly elected
   writer.
-- **Backups with point-in-time recovery.** Daily full XtraBackup on db3, a
-  7-day retention policy that always keeps the newest chain, and binlog
-  archiving every 5 minutes for replay to any point in time.
+- **Backups with point-in-time recovery.** Daily full mysqldump from the ProxySQL host, a
+  7-day retention policy, and binlog archiving every 5 minutes for replay to any point in time.
 - **Monitoring ready.** `mysqld_exporter` on every database node with alert
   rules for group health; point your Prometheus at port 9104.
 - **Guarded operations.** Preflight checks fail fast on wrong OS, duplicate
@@ -200,7 +202,7 @@ by ProxySQL, even with the correct password.
 [Troubleshooting](docs/troubleshooting.md) ·
 [Beginner guide](docs/beginner-guide.md) ·
 [Galaxy release](docs/galaxy-release.md) ·
-[4-server lab](LOCAL-RUN.md)
+[Local DC lab inventory](inventories/local-dc.yml)
 
 Seven roles do the work: `percona_server`, `percona_group_replication`,
 [`percona_access`](roles/percona_access/README.md),
@@ -243,7 +245,7 @@ The inventory groups (`gr_members`, `proxies`, `backup_sources`,
 `monitoring_targets`, `restore_targets`) are the interface. Copy the
 [example inventories](inventories) into your project, replace the IPs, and
 create your own `vault.yml` from
-[inventories/group_vars/all/vault.example.yml](inventories/group_vars/all/vault.example.yml).
+[inventories/group_vars/all/vault.yml](inventories/group_vars/all/vault.yml).
 
 ### Maintainer release
 

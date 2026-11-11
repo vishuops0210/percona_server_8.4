@@ -56,6 +56,24 @@ ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/access.
 Both deployment playbooks already run this role after the group forms.
 For later changes, rerun only `access.yml`.
 
+For an application user that connects through ProxySQL, do not use the
+list above. Add the user to `proxysql_users` in
+`inventories/group_vars/proxies.yml` and run `proxysql.yml`. That run
+creates both the MySQL account and the ProxySQL credential, so the app
+can log in through ProxySQL on port 6033. Create the database first
+with `access.yml` if it does not exist yet.
+
+```yaml
+proxysql_users:
+- name: appuser
+  password: "{{ vault_appuser_password }}"
+  priv: 'appdb.*:SELECT,INSERT,UPDATE,DELETE'
+```
+
+```bash
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/proxysql.yml --ask-vault-pass
+```
+
 | Change | What to edit |
 |---|---|
 | Add a database/user | Add a list entry; `state: present` is the default |

@@ -1,16 +1,56 @@
 ---
-- name: Install Percona repository manager when needed
-  ansible.builtin.apt:
-    deb: https://repo.percona.com/apt/percona-release_latest.generic_all.deb
-- name: Enable XtraBackup 8.4 repository
-  ansible.builtin.command: percona-release enable pxb-84-lts release
-  register: backup_repo
-  changed_when: "'already enabled' not in backup_repo.stdout"
-- name: Install compatible physical backup tooling
+- name: Install package prerequisites
   ansible.builtin.apt:
     name:
-    - percona-xtrabackup-84
+    - gnupg
+    - ca-certificates
     - python3-pymysql
     - python3-cryptography
     state: present
     update_cache: true
+    cache_valid_time: 3600
+- name: Install Percona repository manager when needed
+  ansible.builtin.apt:
+    deb: https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+  when: percona_manage_repository | default(true) | bool
+- name: Inspect enabled repositories
+  ansible.builtin.command:
+    argv:
+    - percona-release
+    - show
+  register: percona_backup_repos
+  changed_when: false
+  when: percona_manage_repository | default(true) | bool
+- name: Enable only the Percona 8.4 repository
+  ansible.builtin.command:
+    argv:
+    - percona-release
+    - setup
+    - -y
+    - ps-84-lts
+  when: percona_manage_repository | default(true) | bool and 'ps-84-lts' not in percona_backup_repos.stdout
+  changed_when: true
+- name: Refresh package metadata
+  ansible.builtin.apt:
+    update_cache: true
+- name: Inspect client package candidate
+  ansible.builtin.command:
+    argv:
+    - apt-cache
+    - policy
+    - percona-server-client
+  environment:
+    LC_ALL: C
+  register: percona_backup_candidate
+  changed_when: false
+- name: Refuse an implicit major upgrade
+  ansible.builtin.assert:
+    that:
+    - "percona_backup_candidate.stdout is search('Candidate: 8\\.4\\.')"
+    fail_msg: No 8.4 client candidate available. Configure an authorized 8.4 repository/mirror; this playbook does not perform major-version upgrades.
+- name: Install Percona Server 8.4 client (mysql, mysqldump, mysqlbinlog)
+  ansible.builtin.apt:
+    name: percona-server-client
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive

@@ -59,7 +59,7 @@
       query: SELECT 1
     changed_when: false
     no_log: true
-    when: proxysql_users | length > 0
+    when: proxysql_users | default([]) | length > 0
 - name: Verify backups and exporters
   hosts: backup_sources
   become: true
@@ -78,11 +78,24 @@
       - (verify_backup.stdout | from_json).latest.age_hours < 30
       - ((verify_backup.stdout | from_json).suspect_backups | length) == 0
       fail_msg: No recent complete backup found. Run 'sudo /usr/local/bin/percona-backup backup full' on the backup source.
-  - name: List binary logs on the server
+  - name: Find the primary member for the binlog list
     community.mysql.mysql_query:
-      login_user: "{{ percona_root_username | default('root') }}"
-      login_password: '{{ percona_root_password }}'
-      login_unix_socket: "{{ percona_socket | default('/var/run/mysqld/mysqld.sock') }}"
+      login_user: "{{ backup_db_user | default('backup') }}"
+      login_password: "{{ vault_backup_password | default('') }}"
+      login_host: "{{ backup_db_hosts | default(groups['gr_members'] | map('extract', hostvars, 'ansible_host') | list) | first }}"
+      login_port: 3306
+      config_file: ''
+      query: SELECT MEMBER_HOST FROM performance_schema.replication_group_members WHERE MEMBER_ROLE = 'PRIMARY'
+    register: verify_primary
+    changed_when: false
+    no_log: true
+    when: backup_binlog_archive_enabled | default(true) | bool
+  - name: List binary logs on the primary
+    community.mysql.mysql_query:
+      login_user: "{{ backup_db_user | default('backup') }}"
+      login_password: "{{ vault_backup_password | default('') }}"
+      login_host: "{{ verify_primary.query_result[0][0].MEMBER_HOST }}"
+      login_port: 3306
       config_file: ''
       query: SHOW BINARY LOGS
     register: verify_binlog_list

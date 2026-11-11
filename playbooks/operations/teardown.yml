@@ -1,0 +1,95 @@
+---
+# Teardown: remove Percona MySQL, ProxySQL, XtraBackup, exporters, backups
+# and all related config and cron, returning the lab VMs to a fresh state.
+# Run: ansible-playbook -i inventories/local-dc.yml playbooks/operations/teardown.yml --ask-vault-pass --ask-become-pass
+- name: Teardown database nodes
+  hosts: db1:db2:db3
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Stop MySQL and exporter
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - mysql
+        - mysqld_exporter
+      ignore_errors: true
+
+    - name: Purge Percona packages
+      ansible.builtin.apt:
+        name:
+          - percona-server-server
+          - percona-server-client
+          - percona-server-common
+          - percona-xtrabackup-84
+        state: absent
+        purge: true
+      ignore_errors: true
+
+    - name: Remove MySQL, backup and exporter data and config
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/mysql
+        - /etc/mysql
+        - /var/log/mysql
+        - /var/backup
+        - /etc/percona-backup
+        - /usr/local/bin/percona-backup
+        - /usr/local/bin/percona-binlog-ship
+        - /usr/local/bin/mysqld_exporter
+        - /etc/mysqld_exporter
+        - /var/log/percona-backup.log
+        - /etc/systemd/system/mysqld_exporter.service
+
+    - name: Remove Percona cron jobs
+      ansible.builtin.shell:
+        cmd: crontab -l 2>/dev/null | grep -v -i percona | crontab - || true
+      changed_when: false
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+- name: Teardown proxy nodes
+  hosts: proxy1
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Stop ProxySQL
+      ansible.builtin.systemd:
+        name: proxysql
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Purge ProxySQL and MySQL client packages
+      ansible.builtin.apt:
+        name:
+          - proxysql
+          - percona-server-client
+        state: absent
+        purge: true
+      ignore_errors: true
+
+    - name: Remove ProxySQL data and config
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/proxysql
+        - /etc/proxysql.cnf
+        - /etc/proxysql
+        - /var/log/proxysql.log
+        - /etc/percona-backup
+        - /var/backup
+        - /usr/local/bin/percona-backup
+        - /usr/local/bin/percona-binlog-ship
+        - /var/log/percona-backup.log
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true

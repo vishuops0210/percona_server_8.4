@@ -18,5 +18,5 @@
     name: Percona binlog ship
     user: root
     minute: '*/5'
-    job: /usr/local/bin/percona-binlog-ship {{ backup_binlog_path }} /etc/percona-backup/client.cnf >> /var/log/percona-backup.log 2>&1
+    job: /usr/local/bin/percona-binlog-ship {{ backup_binlog_path }} /etc/percona-backup/client.cnf "{{ backup_db_hosts | join(' ') }}" >> /var/log/percona-backup.log 2>&1
     state: '{{ ''present'' if backup_binlog_archive_enabled | bool else ''absent'' }}'

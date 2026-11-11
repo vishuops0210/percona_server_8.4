@@ -1,4 +1,7 @@
 ---
+- name: Refuse the removed XtraBackup physical restore
+  ansible.builtin.fail:
+    msg: The XtraBackup physical restore was removed when the backup moved to mysqldump from the ProxySQL host. A mysqldump logical restore is not yet implemented. Do not run this playbook.
 - name: Require an explicit isolated restore target
   ansible.builtin.assert:
     that:

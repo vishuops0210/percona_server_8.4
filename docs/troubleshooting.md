@@ -63,13 +63,13 @@ keeps serving the dead writer.
 
 ## Backup fails
 
-- `Backup workflow failed: ...` with xtrabackup errors: check disk space on
+- `Backup workflow failed: ...` with mysqldump errors: check disk space on
   the backup source and that no other backup is running (the `.lock` file).
 - MinIO upload fails: check the endpoint, bucket and keys with
   `/usr/local/bin/mc --config-dir /etc/percona-backup/mc ls backup/<bucket>/`.
-- `Source identity or previous LSN changed`: take a new full backup; the
-  incremental chain was broken (usually because someone restored or rebuilt
-  the source).
+- `Backup source must be MySQL-compatible 8.4`: the primary answered but is
+  not MySQL 8.4, or the backup user cannot read it; check the group is up and
+  the backup account exists on the writer.
 
 ## Restore says "No unique writable database"
 

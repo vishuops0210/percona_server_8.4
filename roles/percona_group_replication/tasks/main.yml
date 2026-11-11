@@ -38,21 +38,47 @@
   ansible.builtin.include_tasks: bootstrap.yml
   when: gr_online_hosts | length == 0
   run_once: true
+- name: Re-check local group state before joining
+  community.mysql.mysql_query:
+    login_user: '{{ percona_root_username }}'
+    login_password: '{{ vault_percona_root_password }}'
+    login_unix_socket: '{{ percona_socket }}'
+    config_file: ''
+    query: SELECT MEMBER_STATE FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid
+  register: gr_join_check
+  changed_when: false
+  no_log: true
+  when: not gr_online and not (inventory_hostname == percona_group_seed and gr_online_hosts | length == 0)
+- name: Remember whether this member still needs to join
+  ansible.builtin.set_fact:
+    gr_join_needed: "{{ gr_join_check.query_result[0] | selectattr('MEMBER_STATE', 'in', ['ONLINE', 'RECOVERING']) | list | length == 0 }}"
+  when: not gr_online and not (inventory_hostname == percona_group_seed and gr_online_hosts | length == 0)
 - name: Join offline members to the group
   community.mysql.mysql_query:
     login_user: '{{ percona_root_username }}'
-    login_password: '{{ percona_root_password }}'
+    login_password: '{{ vault_percona_root_password }}'
     login_unix_socket: '{{ percona_socket }}'
     config_file: ''
     query: START GROUP_REPLICATION
-  when: not gr_online and not (inventory_hostname == percona_group_seed and gr_online_hosts | length == 0)
-  # Transient GCS failures on join, seen on db3 in earlier runs, clear in
-  # seconds and succeed on rerun. Retry here so one transient failure does
-  # not stop the whole deploy. A real failure still fails after 5 attempts.
+  when: gr_join_needed | default(false) | bool
+  # mysqld auto-starts Group Replication on boot (group-replication-start-
+  # on-boot is ON), so a member can already be ONLINE or RECOVERING by the
+  # time this task runs. That is what happened to db3 on two fresh deploys:
+  # its auto-start joined the group once db1 bootstrapped it, then this
+  # START failed with MySQL error 3093 (group already running), and the
+  # retry loop could not help because 3093 is not transient. The re-check
+  # above skips START when the member is already in the group. Error 3093
+  # The re-check looks at MEMBER_STATE, not just row presence: an OFFLINE
+  # member still shows one row (itself, OFFLINE) after it leaves the group,
+  # and it DOES need START. Only ONLINE or RECOVERING means skip.
+  # is the same condition racing in between the check and the START, so
+  # treat it as success; the next task waits for ONLINE either way. Other
+  # failures (transient GCS errors) still retry 5 times, then fail.
   register: gr_join
   until: gr_join is succeeded
   retries: 5
   delay: 10
+  failed_when: gr_join is failed and '3093' not in (gr_join.msg | default(''))
   no_log: true
 - name: Wait for this member to become online
   community.mysql.mysql_query:

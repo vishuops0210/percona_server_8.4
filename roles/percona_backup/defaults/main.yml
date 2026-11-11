@@ -5,14 +5,17 @@ percona_socket: /var/run/mysqld/mysqld.sock
 percona_port: 3306
 backup_db_user: backup
 backup_db_password: ''
+# Database hosts the backup reads from. Derived from the group members, so
+# the backup discovers the primary fresh on every run and survives failover.
+backup_db_hosts: "{{ groups['gr_members'] | default([]) | map('extract', hostvars, 'ansible_host') | list }}"
 backup_storage: local
 backup_path: /var/backup/mysql
-backup_parallel: 2
 backup_schedule_enabled: false
-backup_incremental_enabled: false
 backup_hour: '1'
 backup_minute: '0'
 backup_retention_days: 7
+backup_retention_weeks: 7
+backup_retention_months: 12
 backup_prune_enabled: true
 backup_prune_hour: '2'
 backup_prune_minute: '30'

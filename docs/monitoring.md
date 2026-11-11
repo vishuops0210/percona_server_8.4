@@ -11,7 +11,7 @@ flowchart LR
 The role installs exporters and enables Group Replication collectors. Prometheus, Grafana and Alertmanager remain outside this repository's deployment.
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/monitoring.yml --ask-vault-pass
+ansible-playbook -i inventories/group-two-proxies.yml playbooks/monitoring.yml --ask-vault-pass --ask-become-pass
 curl http://192.0.2.11:9104/metrics
 ```
 

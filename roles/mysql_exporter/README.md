@@ -15,7 +15,7 @@ exporter_port: 9104
 ```
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/monitoring.yml --ask-vault-pass
+ansible-playbook -i inventories/group-two-proxies.yml playbooks/monitoring.yml --ask-vault-pass --ask-become-pass
 ```
 
 [Defaults](defaults/main.yml) · [Tasks](tasks/main.yml) · [Project setup](../../README.md)

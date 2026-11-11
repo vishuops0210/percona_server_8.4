@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
-"""Local staged XtraBackup 8.4 chains with retention pruning and status,
-optional verified-TLS MinIO publication.
+"""Logical mysqldump backups taken from the ProxySQL host, with retention
+pruning and status, optional verified-TLS MinIO publication.
 No password arguments, shell interpolation, or in-place prepare.
+
+Runs on the ProxySQL host, never on a database node. Discovers the current
+secondaries (replicas) from the group members on every run, then takes one
+consistent single-transaction mysqldump from the first one that answers over
+TCP. Falls back to the primary only when no secondary answers, so the backup
+read load stays off the writer. No incremental backups: every backup is a
+standalone full dump, so restore is a plain SQL load.
+
+Retention is grandfather-father-son (GFS): daily full backups are kept
+7 days, one full per week is kept 7 weeks, and one full per month is
+kept 12 months. Weekly and monthly keepers are full snapshots only;
+binlogs are kept only for point-in-time recovery inside the daily
+window, not for 12 months.
 """
 import argparse
 import fcntl
+import gzip
 import hashlib
 import json
 import os
@@ -47,81 +61,112 @@ def run(argv, log=None):
                           stderr=subprocess.STDOUT if log else subprocess.PIPE)
 
 
-def checkpoints(path):
-    result = {}
-    for line in path.read_text().splitlines():
-        if '=' in line:
-            k, v = line.split('=', 1)
-            result[k.strip()] = v.strip()
-    for key in ('from_lsn', 'to_lsn'):
-        if not result.get(key, '').isdigit():
-            raise ValueError('Missing/invalid checkpoint ' + key)
-        result[key] = int(result[key])
-    return result
+def mysql_query(config, host, query):
+    """Run one read-only query against a database host over TCP.
+
+    Returns the stripped stdout. Raises CalledProcessError when the host
+    does not answer, so callers can try the next host.
+    """
+    result = run([config.get('mysql', 'mysql'),
+                  '--defaults-file=' + config['client_file'],
+                  '-h', host, '-P', '3306',
+                  '--batch', '--skip-column-names', '-e', query])
+    return result.stdout.strip()
 
 
-def load_complete(root, backup_id):
-    folder = root / safe_id(backup_id)
-    manifest = json.loads((folder / 'manifest.json').read_text())
-    marker = json.loads((folder / '_SUCCESS.json').read_text())
-    if manifest['id'] != backup_id or marker['manifest_sha256'] != digest(folder / 'manifest.json'):
-        raise ValueError('Incomplete or modified backup manifest: ' + backup_id)
-    return folder, manifest
+def find_backup_sources(config):
+    """Return ordered (host, role) backup candidates, secondaries first.
 
-
-def verify(folder, manifest):
-    actual = {str(p.relative_to(folder / 'data')) for p in (folder / 'data').rglob('*') if p.is_file()}
-    if actual != set(manifest['files']):
-        raise ValueError('Missing or unexpected backup files')
-    for name, expected in manifest['files'].items():
-        path = folder / 'data' / name
-        if Path(name).is_absolute() or '..' in Path(name).parts or path.is_symlink():
-            raise ValueError('Unsafe file in backup')
-        if digest(path) != expected:
-            raise ValueError('Checksum mismatch: ' + name)
+    Asks the first database host that answers for the full member list
+    (MEMBER_HOST, MEMBER_ROLE). Candidates follow db_hosts order, with
+    SECONDARY members first and the PRIMARY last, so the backup reads
+    from a replica and only falls back to the writer when no replica
+    answers. A failover or a dead node is picked up on the next run,
+    because nothing is hardcoded. MEMBER_HOST must match the inventory
+    addresses (IPs here), or the member is skipped.
+    """
+    hosts = config.get('db_hosts') or []
+    if not hosts:
+        raise ValueError('No database hosts configured (backup_db_hosts)')
+    roles = {}
+    for host in hosts:
+        try:
+            rows = mysql_query(
+                config, host,
+                "SELECT MEMBER_HOST, MEMBER_ROLE FROM performance_schema.replication_group_members")
+        except subprocess.CalledProcessError:
+            continue
+        for line in rows.splitlines():
+            parts = line.split('\t')
+            if len(parts) == 2:
+                roles[parts[0].strip()] = parts[1].strip()
+        if roles:
+            break
+    if not roles:
+        raise ValueError('No database host answered; cannot find a backup source')
+    candidates = ([(h, 'SECONDARY') for h in hosts if roles.get(h) == 'SECONDARY']
+                  + [(h, 'PRIMARY') for h in hosts if roles.get(h) == 'PRIMARY'])
+    if not candidates:
+        raise ValueError('No configured database host is a group member')
+    return candidates
 
 
 def take_backup(config, kind):
+    if kind != 'full':
+        raise ValueError('Only full backups are supported; mysqldump has no incremental mode')
     root = Path(config['path'])
-    state_path = root / 'state.json'
-    source = run([config.get('mysql', 'mysql'), '--defaults-file=' + config['client_file'],
-                  '--batch', '--skip-column-names', '-e', 'SELECT @@server_uuid, @@version']).stdout.strip().split('\t')
-    if len(source) != 2 or not source[1].startswith('8.4.'):
-        raise ValueError('Backup source must be MySQL-compatible 8.4')
-    source_uuid, version = source
-    previous = None
-    if kind == 'incremental':
-        previous = json.loads(state_path.read_text())
-        _, parent = load_complete(root, previous['id'])
-        if parent['source_uuid'] != source_uuid or previous['to_lsn'] != parent['to_lsn']:
-            raise ValueError('Source identity or previous LSN changed; take a new full backup')
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    candidates = find_backup_sources(config)
     backup_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S') + '_' + uuid.uuid4().hex[:10]
     work = root / ('.partial-' + backup_id)
     work.mkdir(mode=0o700)
-    data = work / 'data'
-    argv = [config.get('xtrabackup', 'xtrabackup'), '--defaults-file=' + config['client_file'],
-            '--backup', '--target-dir=' + str(data), '--parallel=' + str(config['parallel'])]
-    if previous:
-        argv.append('--incremental-lsn=' + str(previous['to_lsn']))
-    with (work / 'backup.log').open('w') as log:
-        run(argv, log)
-    cp = checkpoints(data / 'xtrabackup_checkpoints')
-    expected_from = previous['to_lsn'] if previous else 0
-    if cp['from_lsn'] != expected_from or cp['to_lsn'] < cp['from_lsn']:
-        raise ValueError('Backup checkpoint continuity failed')
-    files = {}
-    for path in sorted(data.rglob('*')):
-        if path.is_symlink():
-            raise ValueError('External/symlink tablespaces require a separate restore procedure')
-        if path.is_file():
-            files[str(path.relative_to(data))] = digest(path)
-    binlog_info = data / 'xtrabackup_binlog_info'
-    fields = binlog_info.read_text().strip().split() if binlog_info.exists() else []
-    manifest = {'id': backup_id, 'kind': kind, 'parent': previous['id'] if previous else None,
-                'base': previous['base'] if previous else backup_id,
-                'source_uuid': source_uuid, 'server_version': version,
-                'from_lsn': cp['from_lsn'], 'to_lsn': cp['to_lsn'], 'files': files,
-                'gtid': fields[2] if len(fields) >= 3 else '',
+    dump_path = work / 'dump.sql.gz'
+    dumped = None
+    last_error = None
+    for source_host, source_role in candidates:
+        try:
+            source = mysql_query(
+                config, source_host,
+                'SELECT @@server_uuid, @@version, @@GLOBAL.gtid_executed').split('\t')
+            if len(source) != 3 or not source[1].startswith('8.4.'):
+                raise ValueError('Backup source must be MySQL-compatible 8.4')
+            source_uuid, version, gtid = source
+            argv = [config.get('mysqldump', 'mysqldump'),
+                    '--defaults-file=' + config['client_file'],
+                    '-h', source_host, '-P', '3306',
+                    '--single-transaction', '--routines', '--events', '--triggers',
+                    '--source-data=2', '--set-gtid-purged=OFF', '--all-databases']
+            # Stream the dump through the compressor in this process. Passing the
+            # gzip file object as the child's stdout would write raw SQL straight
+            # to the file descriptor, bypassing compression and corrupting the file.
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            with gzip.open(dump_path, 'wb') as gz:
+                shutil.copyfileobj(proc.stdout, gz, length=1024 * 1024)
+            _, stderr = proc.communicate()
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    proc.returncode, argv,
+                    stderr=stderr.decode('utf-8', 'replace'))
+            dumped = (source_host, source_role, source_uuid, version, gtid)
+            break
+        except (subprocess.CalledProcessError, ValueError) as exc:
+            last_error = exc
+            continue
+    if dumped is None:
+        raise last_error
+    source_host, source_role, source_uuid, version, gtid = dumped
+    binlog_file, binlog_pos = '', 0
+    with gzip.open(dump_path, 'rt', errors='replace') as stream:
+        head = stream.read(65536)
+    match = re.search(r"SOURCE_LOG_FILE='([^']+)', SOURCE_LOG_POS=(\d+)", head)
+    if match:
+        binlog_file, binlog_pos = match.group(1), int(match.group(2))
+    manifest = {'id': backup_id, 'kind': 'full', 'parent': None,
+                'base': backup_id, 'source_uuid': source_uuid,
+                'source_host': source_host, 'source_role': source_role,
+                'server_version': version, 'gtid': gtid,
+                'binlog_file': binlog_file, 'binlog_pos': binlog_pos,
+                'files': {'dump.sql.gz': digest(dump_path)},
                 'created_utc': datetime.now(timezone.utc).isoformat()}
     atomic_json(work / 'manifest.json', manifest)
     marker = {'manifest_sha256': digest(work / 'manifest.json')}
@@ -136,49 +181,48 @@ def take_backup(config, kind):
             run(mc + ['cp', str(marker_file), remote + '/_SUCCESS.json'])
     atomic_json(work / '_SUCCESS.json', marker)
     os.replace(work, root / backup_id)
-    atomic_json(state_path, {'id': backup_id, 'base': manifest['base'], 'to_lsn': cp['to_lsn']})
     return manifest
+
+
+def load_complete(root, backup_id):
+    folder = root / safe_id(backup_id)
+    manifest = json.loads((folder / 'manifest.json').read_text())
+    marker = json.loads((folder / '_SUCCESS.json').read_text())
+    if manifest['id'] != backup_id or marker['manifest_sha256'] != digest(folder / 'manifest.json'):
+        raise ValueError('Incomplete or modified backup manifest: ' + backup_id)
+    return folder, manifest
+
+
+def verify(folder, manifest):
+    actual = {str(p.relative_to(folder)) for p in folder.iterdir() if p.is_file()
+              and p.name not in ('manifest.json', '_SUCCESS.json')}
+    if actual != set(manifest['files']):
+        raise ValueError('Missing or unexpected backup files')
+    for name, expected in manifest['files'].items():
+        path = folder / name
+        if Path(name).is_absolute() or '..' in Path(name).parts or path.is_symlink():
+            raise ValueError('Unsafe file in backup')
+        if digest(path) != expected:
+            raise ValueError('Checksum mismatch: ' + name)
 
 
 def prepare(config, backup_id, workdir):
     root = Path(config['path'])
-    chain, seen = [], set()
-    current = safe_id(backup_id)
-    while current:
-        if current in seen:
-            raise ValueError('Cycle in backup chain')
-        seen.add(current)
-        folder, manifest = load_complete(root, current)
-        verify(folder, manifest)
-        chain.append((folder, manifest))
-        current = manifest['parent']
-    chain.reverse()
-    base = chain[0][1]
-    if base['kind'] != 'full' or base['from_lsn'] != 0 or base['base'] != base['id']:
-        raise ValueError('Chain does not start with a full backup')
-    for (_, previous), (_, following) in zip(chain, chain[1:]):
-        if (following['kind'] != 'incremental' or following['from_lsn'] != previous['to_lsn']
-                or following['source_uuid'] != base['source_uuid'] or following['base'] != base['id']):
-            raise ValueError('Broken incremental chain')
+    folder, manifest = load_complete(root, backup_id)
+    verify(folder, manifest)
+    if manifest.get('kind') != 'full':
+        raise ValueError('Only a full backup can be prepared')
     destination = Path(workdir)
     if destination.resolve().is_relative_to(root.resolve()):
         raise ValueError('Restore workspace must be outside the backup store')
     if destination.exists():
         raise ValueError('Use a new, nonexistent restore workspace')
     destination.mkdir(mode=0o700, parents=True)
-    prepared = destination / 'prepared'
-    shutil.copytree(chain[0][0] / 'data', prepared)
-    tool = config.get('xtrabackup', 'xtrabackup')
-    with (destination / 'prepare.log').open('w') as log:
-        run([tool, '--prepare', '--target-dir=' + str(prepared)] +
-            (['--apply-log-only'] if len(chain) > 1 else []), log)
-        for number, (folder, _) in enumerate(chain[1:], start=1):
-            incremental = destination / ('incremental-' + str(number))
-            shutil.copytree(folder / 'data', incremental)
-            run([tool, '--prepare', '--target-dir=' + str(prepared), '--incremental-dir=' + str(incremental)] +
-                (['--apply-log-only'] if number < len(chain) - 1 else []), log)
-    return {'prepared': str(prepared), 'gtid': chain[-1][1]['gtid'],
-            'source_uuid': base['source_uuid'], 'backup_id': backup_id}
+    prepared = destination / 'dump.sql'
+    with gzip.open(folder / 'dump.sql.gz', 'rb') as source, prepared.open('wb') as target:
+        shutil.copyfileobj(source, target, length=1024 * 1024)
+    return {'prepared': str(prepared), 'gtid': manifest.get('gtid', ''),
+            'source_uuid': manifest['source_uuid'], 'backup_id': backup_id}
 
 
 def list_backups(root):
@@ -224,13 +268,47 @@ def status(config):
     return result
 
 
-def prune(config, retention_days):
-    """Delete complete backups older than retention, keeping the newest chain.
+def gfs_keepers(complete, retention_weeks, retention_months, now=None):
+    """Pick one full backup per week and one per month to keep.
 
-    The newest complete backup and its whole ancestor chain are always kept,
-    so pruning can never remove the only restorable chain. Suspect entries
-    are reported and left alone. Stale partial directories from crashed
-    runs are removed after 24 hours.
+    Weekly keeper is the last full in each ISO week, monthly keeper is
+    the last full in each calendar month. Falls back to the last full
+    in that week or month when the ideal day was missed, so a missed
+    Sunday or 1st does not lose the whole tier. Only full backups are
+    keepers, so a keeper is always a standalone restorable snapshot.
+    """
+    now = now or datetime.now(timezone.utc)
+    fulls = [item for item in complete if item.get('kind') == 'full']
+    weekly, monthly = set(), set()
+    current_month = now.year * 12 + now.month
+    by_week, by_month = {}, {}
+    for item in fulls:
+        created = datetime.fromisoformat(item['created_utc'])
+        by_week.setdefault(created.isocalendar()[:2], []).append(item)
+        by_month.setdefault((created.year, created.month), []).append(item)
+    for key, items in by_week.items():
+        # ISO week start, Monday, in UTC.
+        week_start = datetime.fromisocalendar(key[0], key[1], 1).replace(tzinfo=timezone.utc)
+        if (now - week_start).days > retention_weeks * 7:
+            continue
+        weekly.add(sorted(items, key=lambda x: x['created_utc'])[-1]['id'])
+    for (year, month), items in by_month.items():
+        if current_month - (year * 12 + month) >= retention_months:
+            continue
+        monthly.add(sorted(items, key=lambda x: x['created_utc'])[-1]['id'])
+    return weekly, monthly
+
+
+def prune(config, retention_days, retention_weeks=7, retention_months=12):
+    """Delete complete backups outside GFS retention, keeping the newest chain.
+
+    Daily: every backup younger than retention_days is kept.
+    Weekly: one full per week is kept for retention_weeks weeks.
+    Monthly: one full per month is kept for retention_months months.
+    The newest complete backup and its whole ancestor chain are always
+    kept, so pruning can never remove the only restorable chain. Suspect
+    entries are reported and left alone. Stale partial directories from
+    crashed runs are removed after 24 hours.
     """
     root = Path(config['path'])
     complete, suspect = list_backups(root)
@@ -241,6 +319,8 @@ def prune(config, retention_days):
         while current and current in by_id and current not in protected:
             protected.add(current)
             current = by_id[current].get('parent')
+    weekly, monthly = gfs_keepers(complete, retention_weeks, retention_months)
+    protected |= weekly | monthly
     cutoff = datetime.now(timezone.utc).timestamp() - retention_days * 86400
     pruned = []
     for manifest in complete:
@@ -262,8 +342,16 @@ def prune(config, retention_days):
                 shutil.rmtree(folder)
                 pruned.append(folder.name + ' (partial)')
     remaining = [item for item in complete if item['id'] not in pruned]
-    pruned_binlogs = prune_binlogs(config, remaining)
+    # Binlogs are only needed for point-in-time recovery inside the daily
+    # window. A monthly keeper is a full snapshot, it does not need a
+    # year of binlogs behind it, so prune binlogs against the daily
+    # backups only, not against the oldest GFS keeper.
+    daily_remaining = [item for item in remaining
+                       if datetime.fromisoformat(item['created_utc']).timestamp() >= cutoff]
+    binlog_base = daily_remaining if daily_remaining else remaining[-1:]
+    pruned_binlogs = prune_binlogs(config, binlog_base)
     return {'pruned': pruned, 'protected': sorted(protected),
+            'gfs_weekly_kept': sorted(weekly), 'gfs_monthly_kept': sorted(monthly),
             'suspect_skipped': [name for name, _ in suspect],
             'pruned_binlogs': pruned_binlogs}
 
@@ -299,12 +387,14 @@ def main():
     parser.add_argument('--config', default='/etc/percona-backup/settings.json')
     sub = parser.add_subparsers(dest='command', required=True)
     backup = sub.add_parser('backup')
-    backup.add_argument('kind', choices=['full', 'incremental'])
+    backup.add_argument('kind', choices=['full'])
     restoration = sub.add_parser('prepare')
     restoration.add_argument('--backup-id', required=True)
     restoration.add_argument('--workdir', required=True)
     pruning = sub.add_parser('prune')
     pruning.add_argument('--retention-days', type=int, required=True)
+    pruning.add_argument('--retention-weeks', type=int, default=7)
+    pruning.add_argument('--retention-months', type=int, default=12)
     sub.add_parser('status')
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
@@ -319,7 +409,7 @@ def main():
         elif args.command == 'prepare':
             result = prepare(config, args.backup_id, args.workdir)
         else:
-            result = prune(config, args.retention_days)
+            result = prune(config, args.retention_days, args.retention_weeks, args.retention_months)
     print(json.dumps({key: value for key, value in result.items() if key != 'files'}))
 
 

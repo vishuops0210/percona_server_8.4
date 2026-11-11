@@ -2,4 +2,8 @@
 [client]
 user = {{ backup_db_user | to_json(ensure_ascii=False) }}
 password = {{ backup_db_password | to_json(ensure_ascii=False) }}
-socket = {{ percona_socket | to_json }}
+# TCP to a database node. The backup runs on the ProxySQL host, so there is
+# no local socket. The backup script overrides the host with the current
+# primary on every run; this is only the default for a manual mysql call.
+host = {{ backup_db_hosts | first | default('127.0.0.1') | to_json }}
+port = 3306

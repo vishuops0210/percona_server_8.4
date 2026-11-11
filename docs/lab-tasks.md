@@ -9,7 +9,7 @@ flowchart LR
 ```
 
 1. Prepare fresh Ubuntu 22.04 or 24.04 amd64 VMs and edit [HA inventory](../inventories/group-two-proxies.yml).
-2. Fill the existing Vault keys from [the example](../inventories/group_vars/all/vault.example.yml).
+2. Fill the existing Vault keys in `inventories/group_vars/all/vault.yml` with `ansible-vault edit inventories/group_vars/all/vault.yml`.
 3. Run the setup:
 
 ```bash

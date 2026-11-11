@@ -1,0 +1,52 @@
+---
+# One-off: add a 2G swap file on the lab database nodes.
+# The 2 GB VMs ship with no swap at all, and the 896M buffer pool starved
+# them until mysqld on db1 died about once a minute, likely OOM.
+# Run: ansible-playbook -i inventories/local-dc.yml playbooks/operations/swap.yml --ask-become-pass
+# Idempotent: hosts that already have /swapfile active are skipped.
+# If fallocate fails (swap file with holes), use dd instead:
+#   sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+- name: Add swap file on lab database nodes
+  hosts: database
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check whether /swapfile is already active
+      ansible.builtin.shell: swapon --show --noheadings | awk '{print $1}' | grep -qx /swapfile
+      register: swapfile_active
+      changed_when: false
+      failed_when: false
+
+    - name: Create 2G swap file when missing
+      ansible.builtin.command: fallocate -l 2G /swapfile
+      args:
+        creates: /swapfile
+      when: swapfile_active.rc != 0
+
+    - name: Secure the swap file
+      ansible.builtin.file:
+        path: /swapfile
+        mode: "0600"
+      when: swapfile_active.rc != 0
+
+    - name: Check whether the file is already formatted as swap
+      ansible.builtin.command: blkid -t TYPE=swap /swapfile
+      register: swap_formatted
+      changed_when: false
+      failed_when: false
+
+    - name: Format the swap file
+      ansible.builtin.command: mkswap /swapfile
+      when:
+        - swapfile_active.rc != 0
+        - swap_formatted.rc != 0
+
+    - name: Enable swap
+      ansible.builtin.command: swapon /swapfile
+      when: swapfile_active.rc != 0
+
+    - name: Persist swap in fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "/swapfile none swap sw 0 0"
+        state: present

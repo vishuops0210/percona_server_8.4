@@ -115,9 +115,8 @@ playbook restarts MySQL, which restarts Group Replication with it.
 ## Manual backup commands
 
 ```bash
-# On the backup source (db3 in HA)
+# On the backup source (the ProxySQL host)
 sudo /usr/local/bin/percona-backup backup full
-sudo /usr/local/bin/percona-backup backup incremental
 sudo /usr/local/bin/percona-backup status
 sudo /usr/local/bin/percona-backup prune --retention-days 7
 ```

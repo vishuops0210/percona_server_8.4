@@ -11,7 +11,7 @@ Before publishing, check these, in order:
 - Build: ansible-galaxy collection build produces
   opstree-percona-1.0.0.tar.gz.
 - Tarball: check it includes the code and docs you intend to ship, and
-  excludes .git, dist, LOCAL-RUN.md, vault files and test inventories.
+  excludes .git, dist, lab inventories, vault files and test inventories.
   No secrets in the tarball, ever.
 - Install: installing the built tarball succeeds and ansible-galaxy
   collection list shows opstree.percona 1.0.0.

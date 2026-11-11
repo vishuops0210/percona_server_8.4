@@ -8,7 +8,7 @@ in both flows. Prometheus and Grafana remain external.
 
 1. Install dependencies: `ansible-galaxy collection install -r requirements.yml`.
 2. Replace the example VM addresses in your chosen inventory.
-3. Fill credentials using `inventories/group_vars/all/vault.example.yml` as the key list; create your own encrypted `vault.yml` in the same directory.
+3. Credentials live in the encrypted `inventories/group_vars/all/vault.yml`; edit it with `ansible-vault edit inventories/group_vars/all/vault.yml`.
 4. For a new group, set a unique `percona_group_name` UUID in the shared variables. Keep the UUID unchanged on reruns.
 5. Run the preflight check first. It fails fast on the mistakes that waste the most time.
 
@@ -25,7 +25,7 @@ flowchart LR
   V --> P2[ProxySQL 2]
   P1 --> G[Three Percona members, one writer]
   P2 --> G
-  G --> B[Backups on db3, exporters on all]
+  G --> B[Backups from the ProxySQL host, exporters on all]
 ```
 
 Inventory: `inventories/group-two-proxies.yml`. Three database VMs and two
@@ -35,7 +35,9 @@ existing load balancer at both proxies. Two proxies alone do not create a
 stable endpoint.
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/group-two-proxies.yml --ask-vault-pass
+ansible-playbook -i inventories/group-two-proxies.yml playbooks/group-two-proxies.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-two-proxies.yml playbooks/backup.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-two-proxies.yml playbooks/monitoring.yml --ask-vault-pass --ask-become-pass
 ```
 
 Connect through the VIP or load balancer on port 6033. ProxySQL always
@@ -49,7 +51,7 @@ high availability; cross-site disaster recovery is not included.
 flowchart LR
   A[Application] --> P[One ProxySQL]
   P --> G[Three Percona members, one writer]
-  G --> B[Backups on db3, exporters on all]
+  G --> B[Backups from the ProxySQL host, exporters on all]
 ```
 
 Inventory: `inventories/group-one-proxy.yml`. Three database VMs and one
@@ -57,7 +59,9 @@ proxy VM. The deployment runs the same workflow as the two-proxy setup; the
 inventory is what differs.
 
 ```bash
-ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/backup.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/monitoring.yml --ask-vault-pass --ask-become-pass
 ```
 
 Connect directly to the proxy IP on port 6033. Database failover still works

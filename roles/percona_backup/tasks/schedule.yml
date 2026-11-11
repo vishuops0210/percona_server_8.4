@@ -13,25 +13,16 @@
     user: root
     minute: '{{ backup_minute }}'
     hour: '{{ backup_hour }}'
-    weekday: '{{ ''0'' if backup_incremental_enabled | bool else ''*'' }}'
+    weekday: '*'
     job: /usr/local/bin/percona-backup backup full >> /var/log/percona-backup.log 2>&1
     state: '{{ ''present'' if backup_schedule_enabled | bool else ''absent'' }}'
-- name: Manage incremental schedule explicitly
-  ansible.builtin.cron:
-    name: Percona incremental backup
-    user: root
-    minute: '{{ backup_minute }}'
-    hour: '{{ backup_hour }}'
-    weekday: 1-6
-    job: /usr/local/bin/percona-backup backup incremental >> /var/log/percona-backup.log 2>&1
-    state: '{{ ''present'' if backup_schedule_enabled | bool and backup_incremental_enabled | bool else ''absent'' }}'
 - name: Manage backup retention pruning
   ansible.builtin.cron:
     name: Percona backup prune
     user: root
     minute: '{{ backup_prune_minute }}'
     hour: '{{ backup_prune_hour }}'
-    job: /usr/local/bin/percona-backup prune --retention-days {{ backup_retention_days }} >> /var/log/percona-backup.log 2>&1
+    job: /usr/local/bin/percona-backup prune --retention-days {{ backup_retention_days }} --retention-weeks {{ backup_retention_weeks }} --retention-months {{ backup_retention_months }} >> /var/log/percona-backup.log 2>&1
     state: '{{ ''present'' if backup_prune_enabled | bool else ''absent'' }}'
 - name: Mirror archived binlogs to MinIO
   ansible.builtin.cron:

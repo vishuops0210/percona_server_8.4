@@ -17,11 +17,10 @@ record the answers next to the inventory.
 
 | Decision | Default | Notes |
 |---|---|---|
-| Backup source | db3 (a secondary) | Never the writer. |
+| Backup source | ProxySQL host | Dumps from the current primary over TCP; nothing is installed on the database nodes. |
 | Full backup cadence | Daily 01:00 | `backup_hour`, `backup_minute`. |
-| Incrementals | Off | Turn on with `backup_incremental_enabled` for large data sets. |
 | Retention | 7 days (`backup_retention_days`) | Prune keeps the newest chain no matter what. Size disk for retention plus one extra full. |
-| Binlog archiving | On, shipped every 5 minutes (`backup_binlog_archive_enabled`) | Gives point-in-time recovery. Without it, RPO is the last full/incremental. |
+| Binlog archiving | On, shipped every 5 minutes (`backup_binlog_archive_enabled`) | Gives point-in-time recovery. Without it, RPO is the last full. |
 | Off-site copies | `backup_storage: local` | Set `minio` with the client's bucket for off-host copies. This repo never installs MinIO itself. |
 | RPO / RTO statement | Write it down | Example: RPO 5 minutes (binlog shipping), RTO 1 hour (restore drill proves it). |
 
@@ -196,7 +195,7 @@ restore_targets:
       ansible_host: 192.0.2.31
 ```
 
-Copy the recorded backup directory, including `data/`, `manifest.json` and `_SUCCESS.json`, into `/var/backup/mysql` on restore1. For an incremental restore, copy every ancestor backup too. A MinIO restore requires downloading the chain first.
+Copy the recorded backup directory, including `dump.sql.gz`, `manifest.json` and `_SUCCESS.json`, into `/var/backup/mysql` on restore1. Every backup is a standalone full dump. A MinIO restore requires downloading the backup first.
 
 ```bash
 # Controller: substitute the real backup ID; use a new workspace each attempt.
