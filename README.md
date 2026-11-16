@@ -12,12 +12,11 @@ This branch is the working branch for the Verified Restore product. It holds onl
 
 This branch also carries the complete Percona setup, so a client can take
 this branch alone and run the entire setup: three Percona Server 8.4 nodes
-in single-primary Group Replication, fronted by two ProxySQL nodes with an
-optional Keepalived VIP.
+in single-primary Group Replication, fronted by one ProxySQL node (proxy1).
 
 What the setup contains:
 
-- `playbooks/group-two-proxies.yml` : the one playbook for the entire setup.
+- `playbooks/group-one-proxy.yml` : the one playbook for the entire setup.
   It prepares the database nodes (`percona_server`), forms the group
   (`percona_group_replication`), creates databases and users on the elected
   writer (`percona_access`), then sets up routing (`operations/proxysql.yml`).
@@ -25,11 +24,10 @@ What the setup contains:
 - `roles/percona_group_replication/` : bootstrap and join the group.
 - `roles/percona_access/` : create application databases and users on the writer.
 - `roles/proxysql/` : ProxySQL install, backends, routing and accounts.
-- `roles/proxysql_ha/` : optional Keepalived VIP for the two proxies.
 - `playbooks/operations/proxysql.yml` : reapply proxy settings on their own.
 - `playbooks/operations/preflight.yml` : safety checks to run before deploying.
-- `inventories/group-two-proxies.yml` : example inventory, three database
-  hosts and two proxies. Replace the example `ansible_host` addresses with
+- `inventories/group-one-proxy.yml` : example inventory, three database
+  hosts and one proxy. Replace the example `ansible_host` addresses with
   your real server IPs.
 - `inventories/group_vars/all/main.yml` : shared values for the setup.
   Generate your own group UUID and put it in `percona_group_name`.
@@ -42,8 +40,8 @@ How to run it:
 
 ```bash
 ansible-galaxy collection install -r requirements.yml
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/preflight.yml --ask-vault-pass
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/group-two-proxies.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/preflight.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass --ask-become-pass
 ```
 
 Vault: passwords live in the encrypted `inventories/group_vars/all/vault.yml`,
@@ -67,7 +65,10 @@ databases and the ProxySQL users together.
 
 ## What is not in this branch
 
-Backup, monitoring, and tests are deliberately left out. The backup role
+Backup, monitoring, and tests are deliberately left out. The two-proxy
+playbook and inventory (group-two-proxies.yml) and the Keepalived VIP role
+(proxysql_ha) were removed from this branch; it ships one ProxySQL node
+only. The backup role
 (`percona_backup`), the exporter role (`mysql_exporter`), the backup and
 monitoring playbooks, and the test suite stay on main. This branch ships
 the highly available group and its proxy endpoint only; off-site copies and

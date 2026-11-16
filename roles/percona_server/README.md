@@ -18,7 +18,7 @@ percona_innodb_buffer_pool_size: 2G
 ```
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/group-two-proxies.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass
 ```
 
 [Defaults](defaults/main.yml) · [Tasks](tasks/main.yml) · [Project setup](../../README.md)

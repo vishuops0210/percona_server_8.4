@@ -7,7 +7,7 @@ flowchart LR
   A[Application :6033] --> P[ProxySQL] --> W[Current writer]
 ```
 
-Uses native Group Replication monitoring and caching_sha2_password accounts. All traffic starts on the writer; read rules are optional. Both proxies receive the same inventory settings. Admin listens on localhost:6032.
+Uses native Group Replication monitoring and caching_sha2_password accounts. All traffic starts on the writer; read rules are optional. The single proxy receives the inventory settings. Admin listens on localhost:6032.
 
 Normal application users go here, in `proxysql_users` in
 `inventories/group_vars/proxies.yml`, run with `proxysql.yml`. This role
@@ -30,7 +30,7 @@ proxysql_query_rules: []
 ```
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/proxysql.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/proxysql.yml --ask-vault-pass
 ```
 
 [Defaults](defaults/main.yml) · [Tasks](tasks/main.yml) · [Project setup](../../README.md)

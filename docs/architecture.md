@@ -5,7 +5,6 @@ flowchart LR
   I[Inventory] --> S[percona_server]
   S --> GR[percona_group_replication]
   GR --> P[proxysql]
-  P --> VIP[proxysql_ha: optional VIP]
 ```
 
 | Layer | Owner |
@@ -14,15 +13,15 @@ flowchart LR
 | Group membership and recovery channel | percona_group_replication |
 | Primary election | MySQL Group Replication itself |
 | Application routing | ProxySQL native group monitor |
-| Proxy endpoint failover | Keepalived, or your existing load balancer |
+| Proxy endpoint | Single ProxySQL on port 6033; no failover. Point the app at proxy1, or put your own load balancer in front. |
 
 ## Placement
 
 | Profile | VMs |
 |---|---|
 | Standalone | One database VM |
-| HA example | Three database VMs + two proxy VMs |
-| Three-VM lab | Proxies may share two database VMs; use the same inventory host names in both groups |
+| HA example | Three database VMs + one proxy VM |
+| Three-VM lab | The proxy may share a database VM; use the same inventory host name in both groups |
 
 Place databases on different physical hosts. A three-member group can retain quorum after one member fails. Losing quorum stops writes; setup never force-bootstraps an old group.
 
@@ -36,7 +35,6 @@ A local HA group is not a remote DR site.
 | Proxy → databases; member recovery | TCP 3306 |
 | Group communication between databases | TCP 33061 |
 | Proxy administration | TCP 6032, localhost |
-| VIP election between proxies | IP protocol 112 (VRRP), not TCP/UDP |
 
 ## References
 

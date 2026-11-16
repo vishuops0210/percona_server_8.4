@@ -1,6 +1,6 @@
 # Choose your deployment
 
-One topology, one workflow. This branch ships the two-proxy setup only.
+One topology, one workflow. This branch ships the one-proxy setup only.
 Run one command.
 
 ## Before you start
@@ -12,31 +12,26 @@ Run one command.
 5. Run the preflight check first. It fails fast on the mistakes that waste the most time.
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/preflight.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/preflight.yml --ask-vault-pass
 ```
 
-## 1. Group Replication with two ProxySQL nodes
+## 1. Group Replication with one ProxySQL node
 
 ```mermaid
 flowchart LR
-  A[Application] --> V[VIP or existing load balancer]
-  V --> P1[ProxySQL 1]
-  V --> P2[ProxySQL 2]
+  A[Application] --> P1[ProxySQL]
   P1 --> G[Three Percona members, one writer]
-  P2 --> G
 ```
 
-Inventory: `inventories/group-two-proxies.yml`. Three database VMs and two
-proxy VMs. For one stable client endpoint, configure the VIP and interface
-and enable `proxysql_ha_enabled` in `roles/proxysql_ha/defaults/main.yml`, or point your
-existing load balancer at both proxies. Two proxies alone do not create a
-stable endpoint.
+Inventory: `inventories/group-one-proxy.yml`. Three database VMs and one
+proxy VM. Connect through proxy1 on port 6033. For a highly available
+endpoint, point your existing load balancer at proxy1.
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/group-two-proxies.yml --ask-vault-pass --ask-become-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass --ask-become-pass
 ```
 
-Connect through the VIP or load balancer on port 6033. ProxySQL always
+Connect through proxy1 on port 6033. ProxySQL always
 follows the elected group writer. If the writer fails, the group elects a new
 one automatically; ProxySQL moves the traffic within seconds. This is local
 high availability; cross-site disaster recovery is not included.
@@ -56,7 +51,7 @@ FROM performance_schema.replication_group_members;
 ```
 
 Expect three ONLINE members and exactly one PRIMARY. Then connect through
-the VIP or load balancer on port 6033 and run an application query.
+proxy1 on port 6033 and run an application query.
 
 Use the same inventory for every later command. Day-to-day operations live
 under `playbooks/operations/`: `proxysql` (reapply proxy settings) and

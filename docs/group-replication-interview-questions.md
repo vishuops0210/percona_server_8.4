@@ -256,7 +256,7 @@ transaction, a temporary table, a prepared statement, a session
 variable, or a lock, ProxySQL pins that frontend connection to one
 backend connection until the state clears. That is correct behaviour,
 not a leak: the state lives on that one backend connection and cannot
-move. Pooling is per proxy, so with two proxies each keeps its own
+move. Pooling is per proxy, so the single proxy keeps its own
 pool of up to 100 connections per node.
 
 ## 6. Troubleshooting, from this lab

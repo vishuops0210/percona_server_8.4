@@ -2,14 +2,11 @@
 
 ```mermaid
 flowchart LR
-  A[Application :6033] --> V[Optional VIP]
-  V --> P1[Proxy 1]
-  V --> P2[Proxy 2]
+  A[Application :6033] --> P1[Proxy 1]
   P1 --> W[Current group writer]
-  P2 --> W
 ```
 
-ProxySQL 3.0.1 uses its native Group Replication monitor. No legacy sys view is required. Ansible applies the same settings independently to both proxies; there is no extra ProxySQL configuration cluster.
+ProxySQL 3.0.1 uses its native Group Replication monitor. No legacy sys view is required. Ansible applies the settings to the single proxy.
 
 | Hostgroup | Purpose |
 |---|---|
@@ -21,11 +18,11 @@ ProxySQL 3.0.1 uses its native Group Replication monitor. No legacy sys view is 
 All application traffic starts on hostgroup 10. Read routing is opt-in using `proxysql_query_rules`; this setup does not send every SELECT to a secondary.
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/proxysql.yml --ask-vault-pass
-mysql -h <proxy-ip-or-vip> -P 6033 -u appuser -p appdb
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/proxysql.yml --ask-vault-pass
+mysql -h <proxy-ip> -P 6033 -u appuser -p appdb
 ```
 
-VIP configuration lives in [proxy HA defaults](../roles/proxysql_ha/defaults/main.yml). Use two proxies, an unused VIP, the actual NIC name, and a network that permits VRRP and VIP movement. With no VIP, both proxy addresses work independently; clients need their own endpoint failover.
+There is no high availability on this branch: one ProxySQL node only. Point the application at proxy1 on port 6033. If the client needs a highly available endpoint, put their own load balancer in front of proxy1.
 
 Local admin inspection:
 
@@ -37,8 +34,6 @@ mysql -h 127.0.0.1 -P 6032 -u admin -p
 SELECT hostgroup_id, hostname, status FROM runtime_mysql_servers;
 SELECT * FROM monitor.mysql_server_group_replication_log ORDER BY time_start_us DESC LIMIT 5;
 ```
-
-Keepalived checks the local proxy service and TCP listener. It does not detect every backend or network failure; those scenarios need later acceptance testing. Changing a listener requires a proxy restart.
 
 ## Pooling and runtime variables
 

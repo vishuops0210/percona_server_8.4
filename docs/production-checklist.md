@@ -9,8 +9,8 @@ record the answers next to the inventory.
 | Decision | Default | Notes |
 |---|---|---|
 | Database nodes | 3, single-primary Group Replication | Minimum for quorum. Survives one node failure. |
-| Proxy nodes | 2 | 1 is fine for labs only. |
-| Stable endpoint | Keepalived VIP (`proxysql_ha_enabled`) or the client's existing load balancer | Keepalived needs VRRP (IP protocol 112) between the proxies. On cloud, prefer the cloud load balancer. |
+| Proxy nodes | 1 | One ProxySQL node; no proxy failover. |
+| Stable endpoint | proxy1 on port 6033, or the client's own load balancer in front of it | No proxy failover on this branch. |
 | Read/write split | All traffic starts on the writer; read rules are opt-in (`proxysql_query_rules`) | Do not send every SELECT to secondaries unless the app tolerates slightly stale reads. |
 
 ## Data safety
@@ -45,18 +45,18 @@ Run this on dedicated staging VMs before the client production rollout. The fail
 ```mermaid
 flowchart LR
   D[Deploy fresh VMs] --> R[Rerun unchanged]
-  R --> F[Writer and proxy failover]
+  R --> F[Writer failover and proxy restart]
   F --> E[Record results and recovery times]
 ```
 
 ### 1. Deploy and establish a baseline
 
-Fill the inventory and Vault credentials first. Use three database VMs and two proxies.
+Fill the inventory and Vault credentials first. Use three database VMs and one proxy.
 
 ```bash
 # Controller
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/preflight.yml --ask-vault-pass
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/group-two-proxies.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/preflight.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass
 ```
 
 On any database VM, open `mysql -u root -p`:
@@ -78,7 +78,7 @@ CREATE TABLE appdb.acceptance_probe (id INT PRIMARY KEY, note VARCHAR(100));
 From the application/client machine, connect through the actual client endpoint:
 
 ```bash
-mysql -h <proxy-ip-or-vip> -P 6033 -u appuser -p appdb
+mysql -h <proxy-ip> -P 6033 -u appuser -p appdb
 ```
 
 ```sql
@@ -99,7 +99,7 @@ systemctl show mysql -p ActiveEnterTimestamp
 Rerun the same deployment from the controller:
 
 ```bash
-ansible-playbook -i inventories/group-two-proxies.yml playbooks/group-two-proxies.yml --ask-vault-pass
+ansible-playbook -i inventories/group-one-proxy.yml playbooks/group-one-proxy.yml --ask-vault-pass
 ```
 
 Then confirm the member list again:
@@ -125,7 +125,7 @@ On a surviving database VM:
 mysql -u root -p -e "SELECT MEMBER_HOST, MEMBER_STATE, MEMBER_ROLE FROM performance_schema.replication_group_members;"
 ```
 
-On either proxy, inspect routing:
+On the proxy, inspect routing:
 
 ```bash
 mysql -h 127.0.0.1 -P 6032 -u admin -p -e "SELECT hostgroup_id, hostname, status FROM runtime_mysql_servers;"
@@ -150,19 +150,19 @@ Wait for all three members to be ONLINE and confirm with the member list query. 
 
 ### 4. Test the proxy endpoint
 
-If a VIP is enabled, locate its owner with `ip -br address` on both proxies. Stop ProxySQL **only on the VIP owner**:
+Stop ProxySQL on proxy1:
 
 ```bash
 sudo systemctl stop proxysql
 ```
 
-Reconnect through the same VIP and read/write the test table. Confirm the other proxy owns the VIP, record recovery time, then restore the stopped service:
+Confirm the application endpoint is down while ProxySQL is stopped: with one proxy there is no failover, and the app cannot connect. Then restore the service:
 
 ```bash
 sudo systemctl start proxysql
 ```
 
-**Pass:** the unchanged client endpoint works through the surviving proxy. If using an external load balancer, test its endpoint instead. With a single proxy or two bare IPs and no client failover, mark endpoint HA as **not provided**.
+**Pass:** the endpoint works again after the restart. With a single proxy and no client failover, mark endpoint HA as **not provided**.
 
 ### Record the result
 
@@ -171,6 +171,6 @@ sudo systemctl start proxysql
 | Fresh deployment | | Version, member list, application query |
 | Unchanged rerun | | Recap, UUIDs, service start times |
 | Writer failover and rejoin | | Old/new primary, first successful write, duration |
-| Proxy endpoint failover | | Endpoint, new proxy, duration |
+| Proxy endpoint restart | | Endpoint, duration |
 
 Save results with the inventory revision, collection version and date. Agree acceptable outage and data-loss limits with the client and compare the measured results. A skipped or failed test is not a pass. Remove the test table from the live writer after completing the drill.

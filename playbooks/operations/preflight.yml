@@ -3,7 +3,7 @@
 # most time: wrong OS, placeholder values left in the inventory, duplicate
 # server ids, unreachable peers, missing vault secrets.
 #
-# ansible-playbook -i inventories/group-two-proxies.yml playbooks/operations/preflight.yml --ask-vault-pass
+# ansible-playbook -i inventories/group-one-proxy.yml playbooks/operations/preflight.yml --ask-vault-pass
 - name: Check target servers
   hosts: all
   become: true

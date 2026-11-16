@@ -52,16 +52,6 @@ The session is still pinned to the old writer. Reconnect. If the app holds a
 long-lived connection pool, it must test connections on checkout or the pool
 keeps serving the dead writer.
 
-## VIP does not move to the surviving proxy
-
-1. `systemctl status keepalived` on both proxies.
-2. Check VRRP traffic: `sudo tcpdump -i <interface> vrrp`. Cloud networks
-   usually block VRRP (IP protocol 112); that is why the checklist says to
-   prefer the cloud load balancer there.
-3. The bundled health check only watches the local ProxySQL service and port.
-   It does not detect a proxy that is up but cut off from the databases.
-   Test this failure mode before promising it to a client.
-
 ## Playbook fails reading `query_result`
 
 This repository pins `community.mysql 4.2.1`, whose `query_result` is a list
