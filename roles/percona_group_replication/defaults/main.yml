@@ -1,0 +1,8 @@
+---
+percona_root_username: root
+percona_root_password: ''
+percona_socket: /var/run/mysqld/mysqld.sock
+percona_group_user: gr_recovery
+percona_group_password: ''
+percona_gr_ssl: false
+percona_group_seed: "{{ groups['gr_members'] | first }}"

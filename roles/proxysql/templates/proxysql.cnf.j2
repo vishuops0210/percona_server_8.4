@@ -1,0 +1,9 @@
+# {{ ansible_managed }} -- initial bootstrap only; active state is managed through admin API.
+datadir="/var/lib/proxysql"
+admin_variables={
+    admin_credentials={{ (proxysql_admin_user ~ ':' ~ proxysql_admin_password) | to_json(ensure_ascii=False) }}
+    mysql_ifaces="127.0.0.1:6032"
+}
+mysql_variables={
+    interfaces={{ (proxysql_listen_address ~ ':' ~ (proxysql_port | string)) | to_json }}
+}

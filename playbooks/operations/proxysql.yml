@@ -1,0 +1,9 @@
+---
+- name: Set up application routing and optional VIP
+  hosts: proxies
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  roles:
+  - proxysql
+  - proxysql_ha

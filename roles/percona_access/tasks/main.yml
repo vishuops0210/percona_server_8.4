@@ -1,0 +1,24 @@
+---
+- name: Check explicit database changes
+  ansible.builtin.assert:
+    that:
+    - item.state | default('present') in ['present', 'absent']
+    - item.state | default('present') != 'absent' or percona_allow_database_drop | bool
+    - item.name not in ['mysql', 'sys', 'performance_schema', 'information_schema', 'all', '*']
+    fail_msg: Use application database names and present/absent; dropping requires percona_allow_database_drop=true.
+  loop: '{{ percona_databases }}'
+
+- name: Discover the current writer
+  ansible.builtin.import_tasks: discover.yml
+
+- name: Manage application databases on the writer
+  ansible.builtin.include_tasks:
+    file: databases.yml
+    apply:
+      delegate_to: '{{ percona_account_host }}'
+
+- name: Manage application users on the writer
+  ansible.builtin.include_tasks:
+    file: users.yml
+    apply:
+      delegate_to: '{{ percona_account_host }}'

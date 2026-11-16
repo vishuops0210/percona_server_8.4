@@ -1,0 +1,14 @@
+---
+- name: Set ProxySQL runtime variables without a restart
+  community.proxysql.proxysql_global_variables:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    variable: '{{ item.key }}'
+    value: '{{ item.value }}'
+    load_to_runtime: true
+    save_to_disk: true
+  loop: '{{ proxysql_mysql_variables | dict2items }}'
+  no_log: true

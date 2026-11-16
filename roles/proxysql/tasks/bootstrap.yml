@@ -1,0 +1,117 @@
+---
+- name: Detect existing proxy SQLite configuration
+  ansible.builtin.stat:
+    path: /var/lib/proxysql/proxysql.db
+  register: proxysql_existing_state
+- name: Write initial listener and admin settings only for a new proxy
+  ansible.builtin.template:
+    src: proxysql.cnf.j2
+    dest: /etc/proxysql.cnf
+    owner: root
+    group: proxysql
+    mode: '0640'
+  when: not proxysql_existing_state.stat.exists
+  no_log: true
+  diff: false
+- name: Start local proxy administrator
+  ansible.builtin.service:
+    name: proxysql
+    state: started
+    enabled: true
+- name: Wait for the local proxy admin listener
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6032
+    timeout: 30
+- name: Try desired proxy administrator
+  community.mysql.mysql_query:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    query: SELECT 1
+    connect_timeout: 5
+  changed_when: false
+  register: proxy_desired
+  failed_when: false
+  no_log: true
+- name: Try explicitly provided existing proxy administrator
+  community.mysql.mysql_query:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_bootstrap_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    query: SELECT 1
+  register: proxy_initial
+  when: proxy_desired.query_result is not defined
+  failed_when: false
+  changed_when: false
+  no_log: true
+- name: Require working proxy administrator authentication
+  ansible.builtin.assert:
+    that:
+    - proxy_desired.query_result is defined or proxy_initial.query_result is defined
+    fail_msg: >-
+      Neither ProxySQL admin login succeeded on 127.0.0.1:6032.
+      {% set error = ((proxy_desired.msg | default('')) ~ ' ' ~ (proxy_initial.msg | default(''))) | lower %}
+      {% if 'access denied' in error %}Authentication was rejected. Verify the desired password or supply the existing password as proxysql_bootstrap_admin_password.
+      {% elif 'pymysql' in error or 'mysqlclient' in error %}The selected Python interpreter cannot load the required MySQL driver.
+      {% elif 'unsupported parameters' in error %}The loaded Ansible module does not support the supplied parameters; install requirements.yml.
+      {% elif 'connect' in error and ('refused' in error or 'timed out' in error or '2003' in error) %}The local admin connection failed; check the ProxySQL service and listener.
+      {% else %}The probe failed for an unclassified reason. Test SELECT 1 with a MySQL client on port 6032 to distinguish authentication from a module error.
+      {% endif %}
+      Existing proxy state has not been reset. Credentials remain hidden.
+- name: Update proxy admin credentials when bootstrap was required
+  community.proxysql.proxysql_global_variables:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_bootstrap_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    variable: admin-admin_credentials
+    value: '{{ proxysql_admin_user }}:{{ proxysql_admin_password }}'
+    load_to_runtime: false
+    save_to_disk: false
+  when: proxy_desired.query_result is not defined
+  no_log: true
+- name: Persist and activate administrator credential change
+  community.proxysql.proxysql_manage_config:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_bootstrap_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    action: '{{ item.action }}'
+    config_settings: ADMIN VARIABLES
+    direction: TO
+    config_layer: '{{ item.layer }}'
+  loop:
+  - action: SAVE
+    layer: DISK
+  - action: LOAD
+    layer: RUNTIME
+  when: proxy_desired.query_result is not defined
+  no_log: true
+- name: Bind proxy admin to loopback
+  community.proxysql.proxysql_global_variables:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    variable: admin-mysql_ifaces
+    value: 127.0.0.1:6032
+  no_log: true
+- name: Set explicit application listener
+  community.proxysql.proxysql_global_variables:
+    login_user: '{{ proxysql_admin_user }}'
+    login_password: '{{ proxysql_admin_password }}'
+    login_host: 127.0.0.1
+    login_port: 6032
+    config_file: ''
+    variable: mysql-interfaces
+    value: '{{ proxysql_listen_address }}:{{ proxysql_port }}'
+  no_log: true
+  notify: proxysql_restart

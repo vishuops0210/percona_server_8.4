@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+global_defs {
+  router_id {{ inventory_hostname }}
+  script_user root
+  enable_script_security
+}
+vrrp_script check_proxy {
+  script "/usr/local/bin/check-proxysql"
+  interval 2
+  timeout 3
+  fall 2
+  rise 2
+}
+vrrp_instance MYSQL_PROXY {
+  state BACKUP
+  interface {{ proxysql_ha_interface }}
+  virtual_router_id {{ proxysql_ha_router_id }}
+  priority {{ proxysql_ha_priority }}
+  advert_int 1
+  unicast_src_ip {{ ansible_host }}
+  unicast_peer {
+{% for host in groups['proxies'] if host != inventory_hostname %}
+    {{ hostvars[host].ansible_host }}
+{% endfor %}
+  }
+  virtual_ipaddress {
+    {{ proxysql_ha_vip }} dev {{ proxysql_ha_interface }}
+  }
+  track_script {
+    check_proxy
+  }
+}

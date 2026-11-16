@@ -1,0 +1,31 @@
+---
+- name: Configure proxy virtual IP
+  when: groups.get('proxies', []) | length > 1 and proxysql_ha_enabled | bool
+  block:
+  - name: Install Keepalived
+    ansible.builtin.apt:
+      name: keepalived
+      state: present
+      update_cache: true
+      cache_valid_time: 3600
+  - name: Install ProxySQL health check
+    ansible.builtin.copy:
+      dest: /usr/local/bin/check-proxysql
+      mode: '0755'
+      content: |
+        #!/bin/sh
+        /usr/bin/systemctl is-active --quiet proxysql || exit 1
+        /usr/bin/python3 -c 'import socket; s=socket.create_connection(("127.0.0.1",{{ proxysql_port | default(6033) }}),2); s.close()'
+  - name: Render Keepalived configuration
+    ansible.builtin.template:
+      src: keepalived.conf.j2
+      dest: /etc/keepalived/keepalived.conf
+      mode: '0644'
+    notify: Restart keepalived
+  - name: Apply VIP configuration
+    ansible.builtin.meta: flush_handlers
+  - name: Enable Keepalived
+    ansible.builtin.service:
+      name: keepalived
+      state: started
+      enabled: true
