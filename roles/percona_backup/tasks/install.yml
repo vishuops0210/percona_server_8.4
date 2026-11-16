@@ -48,9 +48,41 @@
     that:
     - "percona_backup_candidate.stdout is search('Candidate: 8\\.4\\.')"
     fail_msg: No 8.4 client candidate available. Configure an authorized 8.4 repository/mirror; this playbook does not perform major-version upgrades.
-- name: Install Percona Server 8.4 client (mysql, mysqldump, mysqlbinlog)
+- name: Install Percona Server 8.4 client (mysql, mysqldump)
   ansible.builtin.apt:
     name: percona-server-client
     state: present
   environment:
     DEBIAN_FRONTEND: noninteractive
+
+- name: Inspect server package candidate
+  ansible.builtin.command:
+    argv:
+    - apt-cache
+    - policy
+    - percona-server-server
+  environment:
+    LC_ALL: C
+  register: percona_backup_server_candidate
+  changed_when: false
+- name: Refuse an implicit major upgrade of the server package
+  ansible.builtin.assert:
+    that:
+    - "percona_backup_server_candidate.stdout is search('Candidate: 8\\.4\\.')"
+    fail_msg: No 8.4 server candidate available. Configure an authorized 8.4 repository/mirror; this playbook does not perform major-version upgrades.
+# mysqlbinlog ships in the server package in Percona 8.4, not in the
+# client package. The backup host needs only the binary, so the mysql
+# service is stopped, disabled, and masked right after install. No
+# database ever runs on the backup host.
+- name: Install Percona Server 8.4 server package for mysqlbinlog only
+  ansible.builtin.apt:
+    name: percona-server-server
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+- name: Keep the backup host database free
+  ansible.builtin.systemd:
+    name: mysql
+    state: stopped
+    enabled: false
+    masked: true

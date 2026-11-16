@@ -9,6 +9,14 @@ percona_group_name: 45eb1c1a-b6a0-49b3-95cb-7f32d0e162d8
 percona_group_seed: db1
 percona_group_password: '{{ vault_replication_password }}'
 percona_max_connections: 200
+
+# Lab-only: VMs are 2 GB, production default is 3584.
+percona_min_memory_mb: 1700
+# Lab-only: 256M pool, not the role default 50 percent of RAM (896M here).
+# The 896M pool starved these 2 GB VMs and mysqld on db1 died about once
+# a minute, likely OOM, with no swap at all. 256M is plenty for the lab
+# testdb; production keeps the 50 percent default.
+percona_innodb_buffer_pool_size: 256M
 percona_databases: 
   - name: testdb
   - name: app01
@@ -18,7 +26,18 @@ percona_users: []
 
 
 backup_db_password: '{{ vault_backup_password }}'
+backup_minio_access_key: '{{ vault_minio_access_key }}'
+backup_minio_secret_key: '{{ vault_minio_secret_key }}'
 backup_schedule_enabled: true
+
+# MinIO object storage for backups. Dumps and binlogs are mirrored
+# to this bucket; local disk on proxy1 is only staging.
+backup_storage: minio
+backup_minio_endpoint: https://minio.ldc.opstree.dev:9000
+backup_minio_bucket: percona-mysql-backup
+# mc binary, GitHub release (dl.min.io now returns HTTP 410 Gone).
+backup_mc_url: https://github.com/minio/mc/releases/download/RELEASE.2025-08-13T08-35-41Z/mc.linux-amd64.RELEASE.2025-08-13T08-35-41Z
+backup_mc_checksum: sha256:01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891
 exporter_db_password: '{{ vault_exporter_password }}'
 exporter_listen_address: '0.0.0.0'
 proxysql_admin_password: '{{ vault_proxysql_admin_password }}'
