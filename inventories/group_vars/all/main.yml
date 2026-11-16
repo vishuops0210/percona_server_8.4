@@ -2,7 +2,7 @@
 # Shared values for the full Percona setup (group replication + ProxySQL).
 # Passwords live in the encrypted inventories/group_vars/all/vault.yml;
 # only the variable names are listed here, never the values.
-ansible_user: ubuntu
+ansible_user: vishal
 ansible_become: true
 percona_root_password: '{{ vault_percona_root_password }}'
 percona_admin_password: '{{ vault_percona_root_password }}'
@@ -10,7 +10,7 @@ percona_address: '{{ ansible_host }}'
 percona_bind_address: '0.0.0.0'
 # Generate a UUID for your group and put it here. Never reuse the example
 # below; preflight refuses the placeholder. Keep it unchanged after setup.
-percona_group_name: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+percona_group_name: 0b1af12d-5843-4212-bfa0-5a69ec179cec
 percona_group_seed: db1
 percona_group_password: '{{ vault_replication_password }}'
 percona_max_connections: 200
