@@ -1,0 +1,20 @@
+# Verified Restore mock website.
+# One service: Nginx serving the built React app on ports 80 and 443.
+# SSL certificates for mock.tyagi.fun are mounted read-only from ./certs
+# on the host. Put your fullchain.pem and privkey.pem in ./certs/ first.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: verified-restore-mock:latest
+    container_name: verified-restore-mock
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Read-only mount of the SSL certificates for mock.tyagi.fun.
+      # Expected files: ./certs/fullchain.pem and ./certs/privkey.pem
+      - ./certs:/etc/nginx/certs:ro

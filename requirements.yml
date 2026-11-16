@@ -1,6 +1,0 @@
----
-collections:
-- name: community.mysql
-  version: 4.2.1
-- name: community.proxysql
-  version: 1.8.0

@@ -1,7 +1,0 @@
----
-# Backup playbook. Run after the cluster setup playbook (group-one-proxy.yml).
-# Takes mysqldump backups from the ProxySQL host, never from a database node,
-# so no backup software is installed on any database node.
-#
-# ansible-playbook -i inventories/local-dc.yml playbooks/backup.yml --ask-vault-pass --ask-become-pass
-- import_playbook: operations/backup.yml

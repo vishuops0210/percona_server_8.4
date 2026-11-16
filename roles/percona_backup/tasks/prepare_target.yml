@@ -1,5 +1,0 @@
----
-- name: Run install
-  ansible.builtin.import_tasks: install.yml
-- name: Run configure
-  ansible.builtin.import_tasks: configure.yml

@@ -1,6 +1,0 @@
----
-# Monitoring playbook. Run after the cluster setup playbook (group-one-proxy.yml).
-# Installs mysqld_exporter on the database nodes for Prometheus scraping.
-#
-# ansible-playbook -i inventories/local-dc.yml playbooks/monitoring.yml --ask-vault-pass --ask-become-pass
-- import_playbook: operations/monitoring.yml

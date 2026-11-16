@@ -1,0 +1,135 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>DB Admin</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:1100px;margin:20px auto;padding:0 16px}
+input,select,button{padding:7px;margin:3px} table{border-collapse:collapse;width:100%;margin:10px 0}
+th,td{border:1px solid #ccc;padding:6px;text-align:left;font-size:14px} th{background:#eee}
+.tab{padding:8px 16px;cursor:pointer;border:1px solid #ccc;background:#f5f5f5}
+.tab.active{background:#222;color:#fff} .card{border:1px solid #ddd;padding:12px;margin:10px 0}
+.hidden{display:none} .warn{background:#fff3cd;border:1px solid #e6c200;padding:10px}
+</style></head><body>
+<h1>DB Admin</h1>
+<div id="loginBox" class="card">
+<h2>Admin login</h2><p class="warn">This is the site login, not the DB login. Set it in .env before putting this on app.tyagi.fun.</p>
+<input id="adminUser" placeholder="Admin user" value="admin">
+<input id="adminPass" type="password" placeholder="Admin password">
+<button onclick="adminLogin()">Login</button><span id="loginMsg"></span>
+</div>
+<div id="appBox" class="hidden">
+<p><span id="statusText"></span> <button onclick="adminLogout()">Logout</button></p>
+<div class="card"><h2>1. Connect to a database user</h2>
+<p>Enter a ProxySQL or MySQL user here. The app works as that user, so it can only do what that user can do.</p>
+<input id="dbHost" placeholder="Host, e.g. ProxySQL private IP" value="">
+<input id="dbPort" placeholder="Port" value="6033" size="8">
+<input id="dbUser" placeholder="DB user, e.g. testuser2">
+<input id="dbPass" type="password" placeholder="DB password">
+<button onclick="connectDb()">Connect</button>
+<button onclick="disconnectDb()">Disconnect</button><span id="connectMsg"></span>
+<p>Tip: ProxySQL is normally port 6033. Direct MySQL is port 3306. To see all users on the Connections page, connect as a user with PROCESS privilege, otherwise MySQL shows only your own connections.</p>
+</div>
+<div>
+<button class="tab active" id="tabConn" onclick="showTab('conn')">Connections</button>
+<button class="tab" id="tabExpl" onclick="showTab('expl')">Explorer: tables and rows</button>
+<button class="tab" id="tabFail" onclick="showTab('fail')">Failover Test: continuous writes</button>
+<button class="tab" id="tabRest" onclick="showTab('rest')">Restore: backup + binlogs</button>
+</div>
+<div id="pageConn" class="card">
+<h2>Live connections</h2>
+<button onclick="loadConnections()">Refresh now</button>
+<label><input type="checkbox" id="autoRef" checked> Auto refresh every 3 seconds</label>
+<div id="connSummary"></div>
+<table><thead><tr><th>Id</th><th>User</th><th>Host</th><th>DB</th><th>Command</th><th>Time</th><th>State</th><th>Info</th></tr></thead><tbody id="connRows"></tbody></table>
+</div>
+<div id="pageExpl" class="card hidden">
+<h2>Explorer</h2>
+<label>Database</label><select id="dbSelect" onchange="loadTables()"></select>
+<button onclick="loadDatabases()">Reload databases</button>
+<div id="tableList"></div>
+<h3>Create table</h3>
+<input id="newTable" placeholder="New table name">
+<div id="colRows"></div>
+<button onclick="addColRow()">Add column</button>
+<button onclick="createTable()">Create table</button><span id="createMsg"></span>
+<h3>Rows</h3><div id="tableTitle"></div><div id="rowTable"></div>
+<h3>Add / edit row</h3><div id="rowForm"></div>
+<button onclick="saveRow()">Save row</button><span id="rowMsg"></span>
+<h3>Read-only SQL</h3><p>SELECT, SHOW, DESCRIBE and EXPLAIN only.</p>
+<textarea id="sqlBox" rows="3" cols="90" placeholder="SELECT * FROM testdb2.app_traffic LIMIT 10"></textarea><br>
+<button onclick="runSql()">Run</button><div id="sqlOut"></div>
+</div>
+<div id="pageFail" class="card hidden">
+<h2>Failover Test: continuous writes</h2>
+<p>Start this, then stop the primary MySQL on purpose. The log will show OK lines with the current writer, then ERROR lines while the primary is down, then a RECOVERED line with how many seconds the outage lasted and which server is the new writer. That number is your failover time, measured, not guessed.</p>
+<p>How to test failover, in order: 1. Connect above as a ProxySQL user, for example testuser1 on 172.31.4.181:6033. 2. Start the test below. 3. On the current primary DB VM, run sudo systemctl stop mysql. 4. Watch ERROR lines, then RECOVERED, and the writer name change. 5. Start the old primary again with sudo systemctl start mysql, it should rejoin as SECONDARY, writer should stay on the new primary.</p>
+<label>Database</label><input id="failDb" value="testdb">
+<label>Table</label><input id="failTable" value="failover_test">
+<label>App name</label><input id="failApp" value="failover1">
+<label>Interval seconds</label><input id="failInterval" value="1.0">
+<label>Custom INSERT SQL, optional. Leave empty for auto mode. Use {seq} and {app} as placeholders, for example: INSERT INTO testdb.student (name) VALUES ('failover-test-{seq}')</label><br>
+<textarea id="failSql" rows="3" cols="90" placeholder="Leave empty for auto mode, or type your own INSERT here"></textarea><br>
+<button onclick="startFailover()">Start</button>
+<button onclick="stopFailover()">Stop</button>
+<button onclick="createFailoverTable()">Create failover_test table</button><span id="failMsg"></span>
+<div id="failStatus"></div>
+<pre id="failLog"></pre>
+<p>Auto mode inserts into app_name, seq, payload columns, so the table must have those columns. Use Create failover_test table above if you do not have such a table, if your user has CREATE privilege, otherwise create it as root on the writer first, then Start. Custom SQL mode runs your INSERT as the connected user, so it can only do what that user can do.</p>
+</div>
+<div id="pageRest" class="card hidden">
+<h2>Restore: backup + binlogs to a target server</h2>
+<p>Pick a server to restore onto, then pick a backup and a binlog. The app loads the backup on that server, then replays the binlogs up to the binlog you picked. The backup list comes from MinIO, using the backup setup already on this server, so no MinIO login is needed here.</p>
+<h3>1. Target server</h3>
+<input id="restHost" placeholder="Target server IP, e.g. 192.168.8.60">
+<input id="restUser" placeholder="SSH user, e.g. vishal">
+<input id="restPass" type="password" placeholder="User password (for sudo)">
+<br><textarea id="restKey" rows="3" cols="90" placeholder="SSH private key, optional. Paste it here if the server uses key login instead of a password."></textarea><br>
+<button onclick="restoreConnect()">Connect to target</button><span id="restConnMsg"></span>
+<h3>2. Pick a backup and a binlog</h3>
+<p>Binlogs are grouped under the backup they follow. When there are more than 6 binlogs, the group is collapsed, click it to expand. Click one binlog to select it: the restore loads the backup, then replays binlogs up to that binlog.</p>
+<button onclick="loadRestoreBackups()">Load backups</button><span id="restLoadMsg"></span>
+<div id="restBackupList"></div>
+<p>Selected: <b id="restSelected">none</b></p>
+<button onclick="startRestore()">Start restore</button><span id="restMsg"></span>
+<h3>Restore log</h3>
+<pre id="restLog"></pre>
+</div>
+</div>
+<script>
+let currentDb='', currentTable='', currentCols=[], editPk=null;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(p,method='GET',body){const r=await fetch(p,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return r.json();}
+async function adminLogin(){const j=await api('/api/admin-login','POST',{username:document.getElementById('adminUser').value,password:document.getElementById('adminPass').value});document.getElementById('loginMsg').textContent=j.ok?'Logged in':j.error;if(j.ok)await refreshStatus();}
+async function adminLogout(){await api('/api/admin-logout','POST',{});location.reload();}
+async function refreshStatus(){const j=await api('/api/status');if(!j.admin){return;}document.getElementById('loginBox').classList.add('hidden');document.getElementById('appBox').classList.remove('hidden');document.getElementById('statusText').textContent=j.connected?`Connected: ${j.user}@${j.host}:${j.port}`:'Not connected to a database yet. Connect above.';if(j.connected)await loadDatabases();}
+async function connectDb(){const j=await api('/api/connect','POST',{host:document.getElementById('dbHost').value,port:document.getElementById('dbPort').value,user:document.getElementById('dbUser').value,password:document.getElementById('dbPass').value});document.getElementById('connectMsg').textContent=j.ok?'Connected. Databases loaded.':j.error;if(j.ok)await refreshStatus();}
+async function disconnectDb(){await api('/api/disconnect','POST',{});await refreshStatus();}
+function showTab(t){document.getElementById('pageConn').classList.toggle('hidden',t!=='conn');document.getElementById('pageExpl').classList.toggle('hidden',t!=='expl');document.getElementById('pageFail').classList.toggle('hidden',t!=='fail');document.getElementById('pageRest').classList.toggle('hidden',t!=='rest');document.getElementById('tabConn').classList.toggle('active',t==='conn');document.getElementById('tabExpl').classList.toggle('active',t==='expl');document.getElementById('tabFail').classList.toggle('active',t==='fail');document.getElementById('tabRest').classList.toggle('active',t==='rest');}
+async function loadConnections(){const j=await api('/api/connections');if(!j.ok){document.getElementById('connSummary').textContent=j.error;return;}document.getElementById('connSummary').innerHTML=`<b>Total: ${j.total}</b> `+Object.entries(j.by_user).map(([u,c])=>`${esc(u)}: ${c}`).join(' | ');document.getElementById('connRows').innerHTML=j.rows.map(r=>`<tr><td>${r.ID}</td><td>${esc(r.USER)}</td><td>${esc(r.HOST)}</td><td>${esc(r.DB)}</td><td>${esc(r.COMMAND)}</td><td>${r.TIME}</td><td>${esc(r.STATE)}</td><td>${esc((r.INFO||'').slice(0,120))}</td></tr>`).join('');}
+setInterval(()=>{if(!document.getElementById('appBox').classList.contains('hidden')&&!document.getElementById('pageConn').classList.contains('hidden')&&document.getElementById('autoRef').checked)loadConnections();},3000);
+async function loadDatabases(){const j=await api('/api/databases');if(!j.ok)return;const s=document.getElementById('dbSelect');s.innerHTML=j.databases.map(d=>`<option>${esc(d)}</option>`).join('');if(j.databases.length){currentDb=j.databases[0];s.value=currentDb;await loadTables();}}
+async function loadTables(){currentDb=document.getElementById('dbSelect').value;const j=await api('/api/tables?db='+encodeURIComponent(currentDb));if(!j.ok){document.getElementById('tableList').textContent=j.error;return;}document.getElementById('tableList').innerHTML=j.tables.map(t=>`<button onclick="openTable('${esc(t)}')">${esc(t)}</button> <button onclick="dropTable('${esc(t)}')">Drop</button>`).join(' ')||'(no tables)';if(j.tables.length&&!j.tables.includes(currentTable))await openTable(j.tables[0]);}
+async function openTable(t){currentTable=t;const j=await api('/api/table?db='+encodeURIComponent(currentDb)+'&table='+encodeURIComponent(t));if(!j.ok){document.getElementById('rowTable').textContent=j.error;return;}currentCols=j.columns;document.getElementById('tableTitle').innerHTML=`<b>${esc(currentDb)}.${esc(t)}</b> total rows: ${j.total} (showing first 100)`;const cols=j.columns.map(c=>c.Field);let h='<table><tr>'+cols.map(c=>`<th>${esc(c)}</th>`).join('')+'<th>Actions</th></tr>';h+=j.rows.map(r=>{const pk={};j.columns.filter(c=>c.Key==='PRI').forEach(c=>pk[c.Field]=r[c.Field]);return '<tr>'+cols.map(c=>`<td>${esc(r[c])}</td>`).join('')+`<td><button onclick='editRow(${JSON.stringify(r).replace(/'/g,"\\'")})'>Edit</button> <button onclick='deleteRow(${JSON.stringify(pk).replace(/'/g,"\\'")})'>Delete</button></td></tr>`;}).join('')+'</table>';document.getElementById('rowTable').innerHTML=h;buildRowForm({});}
+function buildRowForm(vals){document.getElementById('rowForm').innerHTML=currentCols.map(c=>`<label>${esc(c.Field)} (${esc(c.Type)})</label><input data-col="${esc(c.Field)}" value="${esc(vals[c.Field]??'')}">`).join('<br>');}
+function editRow(r){editPk={};currentCols.filter(c=>c.Key==='PRI').forEach(c=>editPk[c.Field]=r[c.Field]);buildRowForm(r);window.scrollTo(0,document.getElementById('rowForm').offsetTop);}
+async function saveRow(){const vals={};document.querySelectorAll('#rowForm [data-col]').forEach(i=>vals[i.dataset.col]=i.value);const j=editPk?await api('/api/row','PUT',{db:currentDb,table:currentTable,pk:editPk,values:vals}):await api('/api/row','POST',{db:currentDb,table:currentTable,values:vals});document.getElementById('rowMsg').textContent=j.ok?'Saved':j.error;editPk=null;if(j.ok)await openTable(currentTable);}
+async function deleteRow(pk){if(!confirm('Delete this row?'))return;const j=await api('/api/row?db='+encodeURIComponent(currentDb)+'&table='+encodeURIComponent(currentTable),'DELETE',pk);if(j.ok)await openTable(currentTable);else alert(j.error);}
+async function dropTable(t){if(!confirm('Drop table '+t+'? This cannot be undone.'))return;const j=await api('/api/table?db='+encodeURIComponent(currentDb)+'&table='+encodeURIComponent(t),'DELETE');alert(j.ok?j.message:j.error);if(j.ok)await loadTables();}
+function addColRow(){const d=document.createElement('div');d.innerHTML=`<input class="cname" placeholder="column name"> <select class="ctype"><option>VARCHAR(255)</option><option>VARCHAR(64)</option><option>INT</option><option>BIGINT</option><option>TEXT</option><option>TIMESTAMP</option><option>DECIMAL(10,2)</option></select> <label><input type="checkbox" class="cpk"> PK</label> <label><input type="checkbox" class="cai"> Auto increment</label>`;document.getElementById('colRows').appendChild(d);}
+async function createTable(){const cols=[...document.querySelectorAll('#colRows div')].map(d=>{const pk=d.querySelector('.cpk').checked,ai=d.querySelector('.cai').checked;return{name:d.querySelector('.cname').value,type:d.querySelector('.ctype').value,primary_key:pk,auto_increment:ai,nullable:!(pk||ai)};});const j=await api('/api/table','POST',{db:currentDb,name:document.getElementById('newTable').value,columns:cols});document.getElementById('createMsg').textContent=j.ok?j.message:j.error;if(j.ok){await loadTables();await openTable(document.getElementById('newTable').value);}}
+async function runSql(){const j=await api('/api/sql','POST',{sql:document.getElementById('sqlBox').value});if(!j.ok){document.getElementById('sqlOut').textContent=j.error;return;}if(!j.rows.length){document.getElementById('sqlOut').textContent='(no rows)';return;}const cols=Object.keys(j.rows[0]);document.getElementById('sqlOut').innerHTML='<table><tr>'+cols.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr>'+j.rows.map(r=>'<tr>'+cols.map(c=>`<td>${esc(r[c])}</td>`).join('')+'</tr>').join('')+'</table>';}
+async function startFailover(){const j=await api('/api/failover/start','POST',{database:document.getElementById('failDb').value,table:document.getElementById('failTable').value,app_name:document.getElementById('failApp').value,interval:document.getElementById('failInterval').value,custom_sql:document.getElementById('failSql').value});document.getElementById('failMsg').textContent=j.ok?j.message:j.error;await loadFailover();}
+async function stopFailover(){const j=await api('/api/failover/stop','POST',{});document.getElementById('failMsg').textContent=j.ok?j.message:j.error;await loadFailover();}
+async function createFailoverTable(){const j=await api('/api/failover/create-table','POST',{db:document.getElementById('failDb').value,table:document.getElementById('failTable').value});document.getElementById('failMsg').textContent=j.ok?j.message:j.error;}
+async function loadFailover(){const j=await api('/api/failover/status');if(!j.ok){document.getElementById('failStatus').textContent=j.error;return;}document.getElementById('failStatus').innerHTML=`<b>${j.running?'RUNNING':'STOPPED'}</b> seq=${j.seq} count=${j.count} errors=${j.errors} last_writer=${esc(j.last_writer)} last_failover_downtime=${j.downtime_last??'-'}s current_downtime=${j.current_downtime??'-'}s<br>${esc(j.last_message)}`;document.getElementById('failLog').textContent=j.log.join('\n');}
+setInterval(()=>{if(!document.getElementById('appBox').classList.contains('hidden')&&!document.getElementById('pageFail').classList.contains('hidden'))loadFailover();},1000);
+// --- Restore page ---
+let restBackups=[], restBackupId='', restBinlog='';
+async function restoreConnect(){const j=await api('/api/restore/connect','POST',{host:document.getElementById('restHost').value,user:document.getElementById('restUser').value,password:document.getElementById('restPass').value,ssh_key:document.getElementById('restKey').value});document.getElementById('restConnMsg').textContent=j.ok?j.message:j.error;if(j.ok)await loadRestoreBackups();}
+async function loadRestoreBackups(){const j=await api('/api/restore/backups');if(!j.ok){document.getElementById('restLoadMsg').textContent=j.error;return;}document.getElementById('restLoadMsg').textContent='';restBackups=j.backups;restBackupId='';restBinlog='';renderRestoreList();}
+function renderRestoreList(){const box=document.getElementById('restBackupList');if(!restBackups.length){box.textContent='(no backups found in MinIO)';return;}const binBtn=(b,x)=>{const name=(typeof x==='string'?x:x.name);const time=(typeof x==='string'?'':(x.time||''));return `<button onclick="selectBinlog('${esc(b.id)}','${esc(name)}')">${esc(name)}${time?`<br><small>${esc(time)}</small>`:''}</button>`;};box.innerHTML=restBackups.map((b,i)=>{const bins=b.binlogs||[];const first=bins.length?(typeof bins[0]==='string'?bins[0]:bins[0].name):'';const last=bins.length?(typeof bins[bins.length-1]==='string'?bins[bins.length-1]:bins[bins.length-1].name):'';const shown=!bins.length?'(no binlogs after this backup yet)':bins.length>6?`<details><summary>${esc(first)} ... ${esc(last)} (${bins.length} binlogs, click to expand)</summary>`+bins.map(x=>binBtn(b,x)).join(' ')+'</details>':bins.map(x=>binBtn(b,x)).join(' ');return `<div class="card"><b>${esc(b.id)}</b> ${esc(b.created_utc||'')} source ${esc(b.source_host||'')} ${esc(b.source_role||'')}<br>GTID in dump: ${esc(b.gtid||'-')}<br>${shown}</div>`;}).join('');}
+function selectBinlog(bid,bin){restBackupId=bid;restBinlog=bin;document.getElementById('restSelected').textContent=`${bid} up to ${bin}`;}
+async function startRestore(){if(!restBackupId||!restBinlog){document.getElementById('restMsg').textContent='Pick a backup and a binlog first.';return;}const j=await api('/api/restore/start','POST',{backup_id:restBackupId,binlog:restBinlog});document.getElementById('restMsg').textContent=j.ok?j.message:j.error;await loadRestoreStatus();}
+async function loadRestoreStatus(){const j=await api('/api/restore/status');if(!j.ok){document.getElementById('restLog').textContent=j.error;return;}document.getElementById('restLog').textContent=(j.running?'RUNNING':j.done?(j.ok?'DONE':'FAILED'):'IDLE')+' '+j.message+'\n'+(j.log||[]).join('\n');}
+setInterval(()=>{if(!document.getElementById('appBox').classList.contains('hidden')&&!document.getElementById('pageRest').classList.contains('hidden'))loadRestoreStatus();},2000);
+addColRow(); refreshStatus();
+</script>
+</body></html>

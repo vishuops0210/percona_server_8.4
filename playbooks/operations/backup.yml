@@ -1,7 +1,0 @@
----
-- name: Set up backup
-  hosts: backup_sources
-  become: true
-  serial: 1
-  roles:
-  - percona_backup
