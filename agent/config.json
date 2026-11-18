@@ -1,0 +1,41 @@
+{
+  "agent_id": "agent-proxysql-01",
+
+  "mysql": {
+    "client_file": "/etc/percona-backup/client.cnf",
+    "db_hosts": ["192.168.8.54", "192.168.8.56", "192.168.8.57"],
+    "port": 3306,
+    "mysql_bin": "mysql",
+    "mysqldump_bin": "mysqldump",
+    "mysqlbinlog_bin": "mysqlbinlog"
+  },
+
+  "discovery": {
+    "interval_seconds": 30
+  },
+
+  "backup": {
+    "path": "/var/backup/mysql",
+    "interval_seconds": 86400
+  },
+
+  "binlog": {
+    "path": "/var/backup/binlog",
+    "interval_seconds": 300
+  },
+
+  "minio": {
+    "enabled": false,
+    "endpoint": "http://minio.ldc.opstree.dev:9000",
+    "access_key": "",
+    "secret_key": "",
+    "bucket": "percona-backup",
+    "prefix": "agent-proxysql-01",
+    "interval_seconds": 120
+  },
+
+  "heartbeat": {
+    "url": "",
+    "interval_seconds": 10
+  }
+}
