@@ -25,10 +25,11 @@ percona_innodb_buffer_pool_size: 256M
 # Example databases; replace with your own. The ProxySQL example users in
 # roles/proxysql/defaults/main.yml expect app01 and app02 to exist, so
 # change those together with this list.
-percona_databases:
-  - name: testdb
-  - name: app01
-  - name: app02
-percona_users: []
+percona_databases: []
+percona_users:
+  - name: backup
+    password: '{{ vault_backup_password }}'
+    priv: '*.*:SELECT,SHOW VIEW,TRIGGER,EVENT,LOCK TABLES,RELOAD,PROCESS,REPLICATION CLIENT,REPLICATION SLAVE,BACKUP_ADMIN'
+
 proxysql_admin_password: '{{ vault_proxysql_admin_password }}'
 proxysql_monitor_password: '{{ vault_proxysql_monitor_password }}'
