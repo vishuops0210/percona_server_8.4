@@ -1,10 +1,12 @@
 {
-  "agent_id": "agent-db-01",
+  "agent_id": "agent-proxysql-01",
   "backup": {
-    "datadir": "/var/lib/mysql",
-    "full_interval_seconds": 86400,
+    "path": "/var/backup/mysql",
     "interval_seconds": 3600,
-    "path": "/var/backup/mysql"
+    "full_interval_seconds": 86400,
+    "ansible_dir": "/home/vishal/ansible",
+    "ansible_playbook": "playbooks/operations/recevo-xtrabackup.yml",
+    "ansible_user": "vishal"
   },
   "binlog": {
     "interval_seconds": 300,
@@ -23,7 +25,7 @@
     "enabled": false,
     "endpoint": "http://minio.ldc.opstree.dev:9000",
     "interval_seconds": 120,
-    "prefix": "agent-db-01",
+    "prefix": "agent-proxysql-01",
     "secret_key": ""
   },
   "mysql": {
@@ -35,7 +37,6 @@
     ],
     "mysql_bin": "mysql",
     "mysqlbinlog_bin": "mysqlbinlog",
-    "port": 3306,
-    "xtrabackup_bin": "xtrabackup"
+    "port": 3306
   }
 }

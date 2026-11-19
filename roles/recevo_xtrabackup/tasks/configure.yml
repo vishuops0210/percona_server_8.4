@@ -1,0 +1,30 @@
+---
+- name: Require a backup id
+  ansible.builtin.assert:
+    that:
+      - recevo_backup_id | length > 0
+    fail_msg: Pass backup_id as an extra-var. The agent sets it.
+
+- name: Create the client config directory on the secondary
+  ansible.builtin.file:
+    path: /etc/percona-backup
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Copy the client config from the control node to the secondary
+  ansible.builtin.copy:
+    src: "{{ recevo_client_file }}"
+    dest: "{{ recevo_client_file }}"
+    owner: vishal
+    group: vishal
+    mode: "0600"
+
+- name: Create the backup directory on the secondary
+  ansible.builtin.file:
+    path: "{{ recevo_backup_path }}"
+    state: directory
+    owner: vishal
+    group: vishal
+    mode: "0700"

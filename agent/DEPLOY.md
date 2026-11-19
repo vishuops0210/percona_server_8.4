@@ -1,19 +1,23 @@
-# Recevo agent: deploy on a database node (secondary)
+# Recevo agent: deploy on the ProxySQL host (proxy1)
 
-The agent runs on a database node, on a SECONDARY. XtraBackup reads the
-datadir directly, so it cannot run from the ProxySQL host. Everything else
-the agent does (discovery, binlog shipping, MinIO upload, heartbeat) talks
-over TCP, so those work from any host.
+The agent runs on proxy1, the separate server. It takes backups from the
+database nodes by running an Ansible playbook against a secondary. The
+playbook installs XtraBackup on the secondary, takes the backup there, and
+fetches the archive back to proxy1. The agent then uploads it to MinIO.
+
+XtraBackup reads the datadir directly, so it cannot run on proxy1. That is
+why the backup work happens on the secondary, while the agent itself stays
+on proxy1.
 
 Setup is done by the `recevo_agent` Ansible role, not by hand and not by
-the agent itself. The role installs the tools, writes the client config,
-creates the directories, gives the agent datadir access, and installs and
-starts the service. See `roles/recevo_agent/README.md` for what the role
-does and does not do.
+the agent itself. The role installs the tools and Ansible, writes the
+client config, creates the directories, deploys the remote XtraBackup
+Ansible files, and installs and starts the service. See
+`roles/recevo_agent/README.md` and `roles/recevo_xtrabackup/README.md`.
 
 Deploy in this order. Each step depends on the one before it.
 
-## 0. Confirm the cluster is up and pick a secondary
+## 0. Confirm the cluster is up
 
 On db1, as root:
 
@@ -25,20 +29,19 @@ Expect 3 rows, all ONLINE, one PRIMARY and two SECONDARY. If the cluster
 is not up, rebuild it first with the branch playbook (preflight, then
 group-one-proxy.yml) and come back here.
 
-Install the agent on one of the SECONDARY nodes (in the original lab db1
-was the primary, so db2 or db3). If that node becomes PRIMARY after a
-failover, move the agent to another secondary: a backup running on the
-writer puts load on the node serving writes.
+The agent picks a secondary itself at backup time, so you do not choose
+one here. If the secondary it picks becomes PRIMARY after a failover, the
+agent picks another secondary on the next run.
 
 ## 1. Create the backup MySQL user
 
 You create this user yourself. The agent never gets DB admin access, and
-the role does not create the user either. The role only writes `client.cnf`
-with the password you provide in step 2.
+the roles do not create the user either. The roles only write and copy
+`client.cnf` with the password you provide in step 3.
 
 Run this SQL on the primary (it replicates to the secondaries). Running it
 on each node with `IF NOT EXISTS` is also safe. Pick a strong password and
-remember it: you will pass the same password to the role in step 2.
+remember it: you will pass the same password to the role in step 3.
 Do not paste the password in chat.
 
 XtraBackup needs BACKUP_ADMIN on top of the old mysqldump grants
@@ -50,11 +53,38 @@ GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES, RELOAD, PROCESS, REPLICATI
 FLUSH PRIVILEGES;
 ```
 
-## 2. Run the recevo_agent role
+## 2. Set up SSH from proxy1 to the secondary nodes
 
-Add the secondary you picked in step 0 to a `recevo_agent` group in your
-inventory. Then run the playbook from the repo root, on the
-verified-restore branch:
+The agent on proxy1 runs Ansible against a secondary, so it needs SSH
+access from proxy1 to the DB nodes. This is Ansible only, using a key, to
+run the remote XtraBackup playbook. The agent does not get sudo on the DB
+nodes, and it does not run arbitrary commands there.
+
+On proxy1, as vishal, create a key if there is not one already:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+```
+
+Copy the public key to each DB node (db1, db2, db3) so the agent can reach
+whichever node is secondary:
+
+```bash
+ssh-copy-id -i ~/.ssh/id_ed25519.pub vishal@<db1-ip>
+ssh-copy-id -i ~/.ssh/id_ed25519.pub vishal@<db2-ip>
+ssh-copy-id -i ~/.ssh/id_ed25519.pub vishal@<db3-ip>
+```
+
+Verify it works without a password:
+
+```bash
+ssh vishal@<db2-ip> "echo ok"
+```
+
+## 3. Run the recevo_agent role on proxy1
+
+Add proxy1 to a `recevo_agent` group in your inventory. Then run the
+playbook from the repo root, on the verified-restore branch:
 
 ```bash
 cd ~/Desktop/percona_server_8.4
@@ -64,22 +94,21 @@ ansible-playbook -i <inventory> playbooks/operations/recevo-agent.yml \
   --extra-vars "recevo_backup_password=<the password from step 1>"
 ```
 
-The playbook copies the agent code to the node, then the role installs
-`percona-xtrabackup-84` and `percona-server-client`, writes
-`/etc/percona-backup/client.cnf`, creates `/var/backup/mysql` and
-`/var/backup/binlog`, adds the agent user to the mysql group so it can
-read the datadir, and installs, enables and starts the service.
+The playbook copies the agent code and the remote XtraBackup Ansible
+files to proxy1, then the role installs the MySQL client tools and
+Ansible, writes `/etc/percona-backup/client.cnf`, creates
+`/var/backup/mysql` and `/var/backup/binlog`, deploys the Ansible files
+to `/home/vishal/ansible/`, and installs, enables and starts the service.
 
 A full XtraBackup is about the size of the datadir, plus one incremental
-per hour until the next full. Make sure the disk holding `/var/backup`
-has room for at least one full plus a day of incrementals.
+per hour until the next full. Make sure the disk holding `/var/backup` on
+proxy1 has room for at least one full plus a day of incrementals. The
+secondary also keeps its own copy of the backup chain, so it needs the
+same room.
 
-Do NOT stop, disable or mask the mysql service on a DB node. It runs the
-database. That step only applied to the old ProxySQL install.
+## 4. Verify the agent is running and the first backup landed
 
-## 3. Verify the agent is running and the first backup landed
-
-On the DB node:
+On proxy1:
 
 ```bash
 sudo systemctl status recevo-agent.service
@@ -93,7 +122,7 @@ Good output looks like this:
 [discovery] 192.168.8.56 -> PRIMARY
 [discovery] 192.168.8.57 -> SECONDARY
 [discovery] 192.168.8.54 -> SECONDARY
-[backup] full backup -> /var/backup/mysql/<id>
+[backup] full backup of 192.168.8.57 -> /var/backup/mysql/<id>
 [backup] done: <id> full (<bytes> bytes)
 [binlog] fetching mysql-bin.00000x from 192.168.8.56
 ```
@@ -105,7 +134,7 @@ incremental until a full is older than 24 hours, then a full again.
 are expected for now: heartbeat has no URL yet and MinIO is disabled in
 `config.json`.
 
-Confirm the backup landed:
+Confirm the backup landed on proxy1:
 
 ```bash
 ls -l /var/backup/mysql/<id>/
@@ -122,7 +151,7 @@ cd ~/agent
 python3 agent.py
 ```
 
-## 4. MinIO (optional, later)
+## 5. MinIO (optional, later)
 
 When you want backups shipped off-box:
 
@@ -142,12 +171,13 @@ sudo systemctl restart recevo-agent.service
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| discovery shows UNKNOWN for all nodes | cluster down, or client.cnf wrong, or backup user missing | Step 0, then steps 1 and 2 |
-| Role fails: no 8.4 XtraBackup candidate | Percona repo not enabled | Enable the ps-84-lts repo, then re-run the playbook |
+| discovery shows UNKNOWN for all nodes | cluster down, or client.cnf wrong, or backup user missing | Step 0, then steps 1 and 3 |
+| Role fails: no 8.4 Percona Server candidate | Percona repo not enabled on proxy1 | Enable the ps-84-lts repo, then re-run the playbook |
 | Role fails: backup password not set | no password passed | Pass `--extra-vars "recevo_backup_password=..."` |
-| Role fails: agent user cannot read the datadir | mysql group not applied | Re-run the playbook; if it still fails, check `id vishal` |
-| `[backup] failed: no backup source found` | no group member answered | Same as the discovery row above |
-| `xtrabackup binary not found` | role did not install it | Re-run the playbook |
+| `[backup] failed: no SECONDARY node found` | cluster down, or no secondary | Step 0 |
+| `[backup] failed: ansible-playbook not found` | Ansible not installed on proxy1 | Re-run the playbook in step 3 |
+| Ansible fails: permission denied (publickey) | SSH key not copied to the secondary | Step 2 |
+| Ansible fails: no 8.4 XtraBackup candidate | Percona repo not enabled on the secondary | Enable the ps-84-lts repo on the secondary, then wait for the next backup run |
 | xtrabackup fails on BACKUP_ADMIN / lock | missing BACKUP_ADMIN grant | Step 1, check the GRANT |
 | binlog fetch fails | missing REPLICATION SLAVE grant | Step 1, check the GRANT |
 | Agent runs but no backup appears | backup runs once at start, then hourly | Wait for the first run, or check the log for `[backup] failed` |

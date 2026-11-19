@@ -1,0 +1,12 @@
+---
+- name: Install XtraBackup on the secondary
+  ansible.builtin.include_tasks: install.yml
+
+- name: Configure the secondary (client credentials and backup dir)
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Take the backup on the secondary
+  ansible.builtin.include_tasks: backup.yml
+
+- name: Fetch the backup back to the control node
+  ansible.builtin.include_tasks: fetch.yml

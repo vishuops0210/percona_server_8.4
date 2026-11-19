@@ -1,0 +1,29 @@
+---
+- name: Create the Ansible directories on proxy1
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ recevo_agent_user }}"
+    group: "{{ recevo_agent_group }}"
+    mode: "0755"
+  loop:
+    - "{{ recevo_ansible_dir }}"
+    - "{{ recevo_ansible_dir }}/roles"
+    - "{{ recevo_ansible_dir }}/playbooks"
+    - "{{ recevo_ansible_dir }}/playbooks/operations"
+
+- name: Deploy the remote XtraBackup role to proxy1
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../roles/recevo_xtrabackup/"
+    dest: "{{ recevo_ansible_dir }}/roles/recevo_xtrabackup/"
+    owner: "{{ recevo_agent_user }}"
+    group: "{{ recevo_agent_group }}"
+    mode: preserve
+
+- name: Deploy the remote XtraBackup playbook to proxy1
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/recevo-xtrabackup.yml"
+    dest: "{{ recevo_ansible_dir }}/playbooks/operations/recevo-xtrabackup.yml"
+    owner: "{{ recevo_agent_user }}"
+    group: "{{ recevo_agent_group }}"
+    mode: "0644"

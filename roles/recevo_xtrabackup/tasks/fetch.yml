@@ -1,0 +1,23 @@
+---
+- name: Archive the backup on the secondary
+  ansible.builtin.command:
+    argv:
+      - tar
+      - -czf
+      - /tmp/{{ recevo_backup_id }}.tar.gz
+      - -C
+      - "{{ recevo_backup_path }}"
+      - "{{ recevo_backup_id }}"
+  register: recevo_tar
+  changed_when: recevo_tar.rc == 0
+
+- name: Fetch the backup archive back to the control node
+  ansible.builtin.fetch:
+    src: /tmp/{{ recevo_backup_id }}.tar.gz
+    dest: "{{ recevo_backup_path }}/{{ recevo_backup_id }}.tar.gz"
+    flat: true
+
+- name: Remove the archive from the secondary
+  ansible.builtin.file:
+    path: /tmp/{{ recevo_backup_id }}.tar.gz
+    state: absent

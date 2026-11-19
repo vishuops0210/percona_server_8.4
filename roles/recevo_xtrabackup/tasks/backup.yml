@@ -1,0 +1,42 @@
+---
+- name: Check whether the incremental base exists on the secondary
+  ansible.builtin.stat:
+    path: "{{ recevo_backup_path }}/{{ recevo_backup_base }}"
+  register: recevo_base_stat
+  when: recevo_backup_kind == "incremental" and recevo_backup_base | length > 0
+
+- name: Fall back to a full backup when the base is missing
+  ansible.builtin.set_fact:
+    recevo_backup_kind: "full"
+    recevo_backup_base: ""
+  when:
+    - recevo_backup_kind == "incremental"
+    - recevo_backup_base | length > 0
+    - not recevo_base_stat.stat.exists
+
+- name: Take a full XtraBackup on the secondary
+  ansible.builtin.command:
+    argv:
+      - xtrabackup
+      - --defaults-file={{ recevo_client_file }}
+      - --host=127.0.0.1
+      - --port=3306
+      - --backup
+      - --datadir={{ recevo_datadir }}
+      - --target-dir={{ recevo_backup_path }}/{{ recevo_backup_id }}
+  register: recevo_xtrabackup_run
+  when: recevo_backup_kind == "full"
+
+- name: Take an incremental XtraBackup on the secondary
+  ansible.builtin.command:
+    argv:
+      - xtrabackup
+      - --defaults-file={{ recevo_client_file }}
+      - --host=127.0.0.1
+      - --port=3306
+      - --backup
+      - --datadir={{ recevo_datadir }}
+      - --incremental-basedir={{ recevo_backup_path }}/{{ recevo_backup_base }}
+      - --target-dir={{ recevo_backup_path }}/{{ recevo_backup_id }}
+  register: recevo_xtrabackup_run
+  when: recevo_backup_kind == "incremental"
