@@ -1,0 +1,10 @@
+---
+- name: Manage application databases and users on the elected writer
+  hosts: gr_members
+  become: true
+  gather_facts: false
+  tasks:
+  - name: Manage applications once
+    ansible.builtin.include_role:
+      name: percona_access
+    run_once: true
