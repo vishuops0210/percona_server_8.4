@@ -1,9 +1,10 @@
 ---
 # Inventory for the Recevo agent deploy. Only proxy1, where the agent runs.
 # The agent itself reaches the DB nodes over MySQL and SSH.
+# The playbook targets the recevo_agent group.
 all:
   children:
-    proxies:
+    recevo_agent:
       hosts:
         proxy1:
           ansible_host: 192.168.8.55
