@@ -1,0 +1,53 @@
+---
+- name: Check that a Percona XtraBackup 8.4 candidate is available
+  ansible.builtin.command:
+    argv:
+      - apt-cache
+      - policy
+      - percona-xtrabackup-84
+  environment:
+    LC_ALL: C
+  register: recevo_xtrabackup_candidate
+  changed_when: false
+
+- name: Refuse an implicit major upgrade
+  ansible.builtin.assert:
+    that:
+      - recevo_xtrabackup_candidate.stdout is search('Candidate: 8\.4\.')
+    fail_msg: No 8.4 XtraBackup candidate available. Enable the Percona ps-84-lts repository first.
+
+- name: Install the MySQL client and XtraBackup
+  ansible.builtin.apt:
+    name:
+      - percona-server-client
+      - percona-xtrabackup-84
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Confirm the tools are present
+  ansible.builtin.command:
+    argv:
+      - which
+      - mysql
+      - mysqlbinlog
+      - xtrabackup
+  register: recevo_tools
+  changed_when: false
+
+- name: Give the agent user read access to the datadir
+  ansible.builtin.user:
+    name: "{{ recevo_agent_user }}"
+    groups: mysql
+    append: true
+
+- name: Verify the agent user can read the datadir
+  ansible.builtin.command:
+    argv:
+      - ls
+      - "{{ recevo_datadir }}"
+  become: true
+  become_user: "{{ recevo_agent_user }}"
+  register: recevo_datadir_check
+  changed_when: false

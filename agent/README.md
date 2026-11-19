@@ -33,6 +33,15 @@ Deploy on a **database node, on a SECONDARY**. XtraBackup reads the datadir
 directly, so it cannot run from the ProxySQL host. Everything else the agent
 does talks over TCP, so those plugins work from any host.
 
+## Setup (Ansible role, not by hand)
+
+Installation and setup are done by the `recevo_agent` Ansible role
+(`roles/recevo_agent/`), run from `playbooks/operations/recevo-agent.yml`.
+The role installs XtraBackup and the client tools, writes `client.cnf`,
+creates the backup directories, gives the agent datadir access, and installs
+and starts the service. The agent itself never installs anything. See
+`DEPLOY.md` for the deploy steps.
+
 ## Install & run
 
 ```bash
@@ -42,8 +51,7 @@ python3 agent.py
 ```
 
 Press `Ctrl+C` to stop. Point it at another config with `--config other.json`.
-See `DEPLOY.md` for the full deploy (tools, backup user, client.cnf,
-directories, datadir access, systemd).
+See `DEPLOY.md` for the full deploy (backup user, the role, systemd).
 
 ## The plugins
 
@@ -67,7 +75,7 @@ need.
 ## Configuration (`config.json`)
 
 - `mysql.client_file` — a MySQL `--defaults-file` with the backup user's
-  credentials (the deploy writes `/etc/percona-backup/client.cnf`). No passwords
+  credentials (the role writes `/etc/percona-backup/client.cnf`). No passwords
   live in `config.json`.
 - `mysql.db_hosts` — the Group Replication node IPs.
 - `backup.path` / `backup.datadir` — where backups land, and the datadir

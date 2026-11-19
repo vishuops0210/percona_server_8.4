@@ -1,0 +1,31 @@
+---
+# Deploy the Recevo agent on a database node (secondary).
+#
+# Run from the repo root:
+#   ansible-playbook -i <inventory> playbooks/operations/recevo-agent.yml \
+#     --extra-vars "recevo_backup_password=<the password>"
+#
+# The target host must be in the `recevo_agent` inventory group (a secondary
+# DB node). The backup MySQL user is created by hand first; this playbook
+# only writes client.cnf with the password you provide.
+#
+# This playbook copies the agent code, then runs the recevo_agent role, which
+# installs XtraBackup and the client tools, writes client.cnf, creates the
+# backup directories, gives the agent user datadir access, and installs and
+# starts the systemd service. No setup step is done by hand or by the agent
+# itself; the role is the automation engine for installation.
+- name: Deploy the Recevo agent on a database node
+  hosts: recevo_agent
+  become: true
+  vars:
+    recevo_backup_password: "{{ vault_recevo_backup_password | default('') }}"
+  pre_tasks:
+    - name: Copy the agent code to the target
+      ansible.builtin.copy:
+        src: ../../agent/
+        dest: /home/vishal/agent/
+        owner: vishal
+        group: vishal
+        mode: preserve
+  roles:
+    - recevo_agent

@@ -1,0 +1,18 @@
+[Unit]
+Description=Recevo agent - Percona MySQL backup agent (Verified Restore)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User={{ recevo_agent_user }}
+Group={{ recevo_agent_group }}
+WorkingDirectory={{ recevo_agent_home }}
+ExecStart=/usr/bin/python3 {{ recevo_agent_home }}/agent.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
