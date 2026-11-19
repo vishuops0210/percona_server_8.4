@@ -12,6 +12,14 @@
     - "{{ recevo_ansible_dir }}/playbooks"
     - "{{ recevo_ansible_dir }}/playbooks/operations"
 
+- name: Deploy ansible.cfg to proxy1 so roles_path points at ./roles
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../ansible.cfg"
+    dest: "{{ recevo_ansible_dir }}/ansible.cfg"
+    owner: "{{ recevo_agent_user }}"
+    group: "{{ recevo_agent_group }}"
+    mode: "0644"
+
 - name: Deploy the remote XtraBackup role to proxy1
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../roles/recevo_xtrabackup/"
