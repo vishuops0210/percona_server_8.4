@@ -49,7 +49,16 @@ class XtraBackupPlugin(Plugin):
     def backup_once(self, mysql_cfg, backup_cfg, path, datadir, full_interval):
         xtrabackup_bin = mysql_cfg.get("xtrabackup_bin", "xtrabackup")
         if shutil.which(xtrabackup_bin) is None:
-            raise RuntimeError(f"xtrabackup binary '{xtrabackup_bin}' not found on this host")
+            # The agent never installs anything itself. The fix is the
+            # recevo_agent Ansible role, run from your laptop (the control
+            # node) against this DB node. See agent/DEPLOY.md step 2.
+            raise RuntimeError(
+                f"xtrabackup binary '{xtrabackup_bin}' not found on this host. "
+                "This agent runs on a database node, and the role installs it. "
+                "From the repo root, on the verified-restore branch, run: "
+                "ansible-playbook -i <inventory> playbooks/operations/recevo-agent.yml "
+                "--extra-vars \"recevo_backup_password=<the backup user password>\""
+            )
 
         root = Path(path)
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
