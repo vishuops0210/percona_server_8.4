@@ -1,0 +1,4 @@
+# Only the MinIO upload plugin needs an external package.
+# Everything else uses the Python standard library plus the mysql / mysqldump /
+# mysqlbinlog command-line clients (already installed by the Ansible roles).
+boto3>=1.28

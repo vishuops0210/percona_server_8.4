@@ -1,0 +1,12 @@
+---
+- name: Install the agent dependencies
+  ansible.builtin.include_tasks: install.yml
+
+- name: Configure the agent (directories and client credentials)
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Deploy the remote XtraBackup Ansible files to proxy1
+  ansible.builtin.include_tasks: ansible.yml
+
+- name: Install and start the agent service
+  ansible.builtin.include_tasks: service.yml

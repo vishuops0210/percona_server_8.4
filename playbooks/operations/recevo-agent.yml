@@ -1,0 +1,32 @@
+---
+# Deploy the Recevo agent on the ProxySQL host (proxy1).
+#
+# Run from the repo root:
+#   ansible-playbook -i <inventory> playbooks/operations/recevo-agent.yml \
+#     --extra-vars "recevo_backup_password=<the password>"
+#
+# The target host must be in the `recevo_agent` inventory group (proxy1).
+# The backup MySQL user is created by hand first; this playbook only writes
+# client.cnf with the password you provide.
+#
+# This playbook copies the agent code and the remote XtraBackup Ansible
+# files to proxy1, then runs the recevo_agent role, which installs the MySQL
+# client tools and Ansible, writes client.cnf, creates the backup
+# directories, deploys the Ansible files, and installs and starts the
+# systemd service. The agent then runs on proxy1 and triggers the remote
+# XtraBackup playbook against a secondary when a backup is due.
+- name: Deploy the Recevo agent on the ProxySQL host
+  hosts: recevo_agent
+  become: true
+  vars:
+    recevo_backup_password: "{{ vault_recevo_backup_password | default('') }}"
+  pre_tasks:
+    - name: Copy the agent code to the target
+      ansible.builtin.copy:
+        src: ../../agent/
+        dest: /home/vishal/agent/
+        owner: vishal
+        group: vishal
+        mode: preserve
+  roles:
+    - recevo_agent

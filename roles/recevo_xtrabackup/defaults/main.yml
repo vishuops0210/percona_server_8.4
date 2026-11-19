@@ -1,0 +1,15 @@
+---
+# Variables for the remote XtraBackup backup role.
+# This role runs ON a secondary DB node, invoked by the Recevo agent on
+# proxy1 via Ansible. It installs XtraBackup, takes the backup, and fetches
+# it back to the control node (proxy1).
+
+# Backup id, kind and base are passed in by the agent (extra-vars).
+recevo_backup_id: ""
+recevo_backup_kind: "full"
+recevo_backup_base: ""
+
+recevo_backup_path: /var/backup/mysql
+recevo_datadir: /var/lib/mysql
+recevo_client_file: /etc/percona-backup/client.cnf
+recevo_backup_user: backup

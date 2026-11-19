@@ -1,0 +1,45 @@
+---
+- name: Check that a Percona Server 8.4 candidate is available
+  ansible.builtin.command:
+    argv:
+      - apt-cache
+      - policy
+      - percona-server-server
+  environment:
+    LC_ALL: C
+  register: recevo_server_candidate
+  changed_when: false
+
+- name: Refuse an implicit major upgrade
+  ansible.builtin.assert:
+    that:
+      - recevo_server_candidate.stdout is search('Candidate: 8\.4\.')
+    fail_msg: No 8.4 Percona Server candidate available. Enable the Percona ps-84-lts repository first.
+
+- name: Install the MySQL client, the server package (for mysqlbinlog) and Ansible
+  ansible.builtin.apt:
+    name:
+      - percona-server-client
+      - percona-server-server
+      - ansible-core
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Confirm the tools are present
+  ansible.builtin.command:
+    argv:
+      - which
+      - mysql
+      - mysqlbinlog
+      - ansible-playbook
+  register: recevo_tools
+  changed_when: false
+
+- name: Stop and mask the MySQL service on proxy1 (it only provides the tools)
+  ansible.builtin.systemd:
+    name: mysql
+    state: stopped
+    enabled: false
+    masked: true

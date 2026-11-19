@@ -1,0 +1,23 @@
+---
+# Take a remote XtraBackup backup on a secondary DB node and fetch it back
+# to this host (proxy1). Run by the Recevo agent on proxy1.
+#
+# The agent runs this from its Ansible directory on proxy1:
+#   ansible-playbook -i <secondary-ip>, playbooks/operations/recevo-xtrabackup.yml \
+#     --extra-vars "backup_id=<id> backup_kind=full"
+# or for an incremental:
+#   --extra-vars "backup_id=<id> backup_kind=incremental backup_base=<base-id>"
+#
+# The agent passes backup_id, backup_kind and backup_base. The role installs
+# XtraBackup on the secondary, takes the backup, and fetches the archive back
+# to /var/backup/mysql/<id>.tar.gz on proxy1. The agent then extracts it and
+# uploads it to MinIO.
+- name: Take a remote XtraBackup backup on the secondary
+  hosts: all
+  become: true
+  vars:
+    recevo_backup_id: "{{ backup_id }}"
+    recevo_backup_kind: "{{ backup_kind | default('full') }}"
+    recevo_backup_base: "{{ backup_base | default('') }}"
+  roles:
+    - recevo_xtrabackup
