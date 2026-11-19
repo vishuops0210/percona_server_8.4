@@ -13,7 +13,7 @@
 - name: Refuse an implicit major upgrade
   ansible.builtin.assert:
     that:
-      - recevo_server_candidate.stdout is search('Candidate: 8\.4\.')
+      - "recevo_server_candidate.stdout is search('Candidate: 8\\.4\\.')"
     fail_msg: No 8.4 Percona Server candidate available. Enable the Percona ps-84-lts repository first.
 
 - name: Install the MySQL client, the server package (for mysqlbinlog) and Ansible
