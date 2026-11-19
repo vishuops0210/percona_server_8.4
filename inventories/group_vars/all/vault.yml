@@ -1,0 +1,6 @@
+vault_percona_root_password: "983fa3c1ed71ecfe7e7d64cac163e1d2"
+vault_percona_admin_password: "5fb79a4f370b9feb6c281c8b7dd298db"
+vault_replication_password: "64776d72824df8c49c6c429412837181"
+vault_proxysql_admin_password: "0f947fbbc6b83bcf1bd0df3fb665d24c"
+vault_proxysql_monitor_password: "32779a8626b915db13abd755696d3b2e"
+vault_backup_password: "448a3d404e25469cf4a126dd5bed286f"
