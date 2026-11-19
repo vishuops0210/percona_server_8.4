@@ -8,6 +8,7 @@ Type=simple
 User={{ recevo_agent_user }}
 Group={{ recevo_agent_group }}
 WorkingDirectory={{ recevo_agent_home }}
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 {{ recevo_agent_home }}/agent.py
 Restart=on-failure
 RestartSec=10
