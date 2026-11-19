@@ -8,6 +8,7 @@ Type=simple
 User=vishal
 Group=vishal
 WorkingDirectory=/home/vishal/agent
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /home/vishal/agent/agent.py
 Restart=on-failure
 RestartSec=10
