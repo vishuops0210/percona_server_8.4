@@ -134,13 +134,10 @@ class XtraBackupPlugin(Plugin):
     def _pick_secondary(self, mysql_cfg):
         """Return the IP of a SECONDARY node, or None if none is found."""
         try:
-            result = percona.discover(mysql_cfg)
+            members, sources, primary = percona.discover(mysql_cfg)
         except Exception:
             return None
-        members = result.get("members", []) if isinstance(result, dict) else []
-        for member in members:
-            host = member.get("host") or member.get("MEMBER_HOST") or ""
-            role = member.get("role") or member.get("MEMBER_ROLE") or ""
+        for host, role in members:
             if host and str(role).upper() == "SECONDARY":
                 return str(host)
         return None
