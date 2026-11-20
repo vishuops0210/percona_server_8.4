@@ -20,13 +20,17 @@
     "url": ""
   },
   "minio": {
-    "enabled": true,
-    "access_key": "B9P**********R31EX",
-    "secret_key": "ups*********bou9Czkq1JJXs6B4Rf0to3",
-    "endpoint": "http://minio.ldc.opstree.dev:9000",
-    "bucket": "percona-backup",
+    "enabled": false,
+    "access_key": "",
+    "secret_key": "",
+    "endpoint": "https://minio.ldc.opstree.dev:9000",
+    "bucket": "automation-percona-backup",
     "prefix": "agent-proxysql-01",
-    "interval_seconds": 120
+    "interval_seconds": 120,
+    "uploads": [
+      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders"},
+      {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files"}
+    ]
   },
   "mysql": {
     "client_file": "/etc/percona-backup/client.cnf",
