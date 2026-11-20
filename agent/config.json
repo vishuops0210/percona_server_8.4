@@ -20,13 +20,13 @@
     "url": ""
   },
   "minio": {
-    "access_key": "",
-    "bucket": "percona-backup",
     "enabled": false,
+    "access_key": "B9P**********R31EX",
+    "secret_key": "ups*********bou9Czkq1JJXs6B4Rf0to3",
     "endpoint": "http://minio.ldc.opstree.dev:9000",
-    "interval_seconds": 120,
+    "bucket": "percona-backup",
     "prefix": "agent-proxysql-01",
-    "secret_key": ""
+    "interval_seconds": 120
   },
   "mysql": {
     "client_file": "/etc/percona-backup/client.cnf",
