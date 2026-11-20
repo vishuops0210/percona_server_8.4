@@ -28,8 +28,8 @@
     "prefix": "agent-proxysql-01",
     "interval_seconds": 120,
     "uploads": [
-      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders"},
-      {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files"}
+      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders", "delete_after_upload": false},
+      {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files", "delete_after_upload": true}
     ]
   },
   "mysql": {
