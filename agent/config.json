@@ -5,7 +5,7 @@
     "full_path": "/var/backup/mysql-full",
     "incremental_path": "/var/backup/mysql-incremental",
     "interval_seconds": 3600,
-    "full_interval_seconds": 86400,
+    "full_interval_seconds": 604800,
     "ansible_dir": "/home/vishal/ansible",
     "ansible_playbook": "playbooks/operations/recevo-xtrabackup.yml",
     "ansible_user": "vishal"
@@ -14,8 +14,15 @@
     "interval_seconds": 300,
     "path": "/var/backup/binlog"
   },
+  "cleanup": {
+    "enabled": false,
+    "interval_seconds": 86400,
+    "full_retention_days": 30,
+    "incremental_retention_days": 7,
+    "binlog_retention_hours": 2
+  },
   "dashboard": {
-    "enabled": true,
+    "enabled": false,
     "host": "0.0.0.0",
     "port": 8000
   },
@@ -36,7 +43,7 @@
     "interval_seconds": 120,
     "uploads": [
       {"source": "/var/backup/mysql-full", "dest": "full-backups", "mode": "folders", "delete_after_upload": false},
-      {"source": "/var/backup/mysql-incremental", "dest": "incremental-backup", "mode": "folders", "delete_after_upload": false},
+      {"source": "/var/backup/mysql-incremental", "dest": "backups", "mode": "folders", "delete_after_upload": false},
       {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files", "delete_after_upload": true}
     ]
   },
