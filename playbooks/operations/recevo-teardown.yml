@@ -1,0 +1,63 @@
+---
+# Teardown the Recevo agent from proxy1.
+# Stops and removes the agent service, the agent code, the Ansible files,
+# the backup staging folders, and the client.cnf. Does NOT touch the MySQL
+# cluster, ProxySQL, MinIO bucket contents, or anything in the repo.
+#
+# Run from your laptop on the verified-restore branch:
+#   ansible-playbook -i inventories/proxy1.yml playbooks/operations/recevo-teardown.yml --extra-vars "teardown_confirm=yes" --ask-become-pass
+# The teardown_confirm=yes is required, the play refuses to run without it.
+- name: Confirm teardown
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Refuse unless teardown_confirm is yes
+      ansible.builtin.assert:
+        that:
+          - teardown_confirm | default('no') == 'yes'
+        fail_msg: "Refusing to tear down the Recevo agent. Re-run with --extra-vars teardown_confirm=yes if you really mean it."
+
+- name: Teardown Recevo agent on proxy1
+  hosts: recevo_agent
+  become: true
+  tasks:
+    - name: Stop and disable recevo-agent service
+      ansible.builtin.systemd:
+        name: recevo-agent
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove recevo-agent service file
+      ansible.builtin.file:
+        path: /etc/systemd/system/recevo-agent.service
+        state: absent
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Remove agent code
+      ansible.builtin.file:
+        path: /home/vishal/agent
+        state: absent
+
+    - name: Remove Ansible files deployed for the agent
+      ansible.builtin.file:
+        path: /home/vishal/ansible
+        state: absent
+
+    - name: Remove backup staging folders
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/backup/mysql
+        - /var/backup/mysql-full
+        - /var/backup/mysql-incremental
+        - /var/backup/binlog
+
+    - name: Remove percona-backup config
+      ansible.builtin.file:
+        path: /etc/percona-backup
+        state: absent
