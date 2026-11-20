@@ -20,7 +20,7 @@
     "url": ""
   },
   "minio": {
-    "enabled": false,
+    "enabled": true,
     "access_key": "B9P**********R31EX",
     "secret_key": "ups*********bou9Czkq1JJXs6B4Rf0to3",
     "endpoint": "http://minio.ldc.opstree.dev:9000",
