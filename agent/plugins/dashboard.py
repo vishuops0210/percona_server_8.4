@@ -6,6 +6,9 @@ by plugin. Open http://192.168.8.55:<port> in a browser, click a plugin
 button, and it shows only that plugin's live logs, so you do not have to
 grep journalctl by hand.
 
+The header shows a live heartbeat: a green ALIVE dot when the agent logged
+in the last 30 seconds, the time of the last log line, and the agent uptime.
+
 Config, under "dashboard":
   enabled: true or false (default false)
   port: the port to listen on (default 8000)
@@ -13,11 +16,12 @@ Config, under "dashboard":
 
 The dashboard reads logs with journalctl -u recevo-agent, filters by the
 plugin name in brackets, e.g. [minio], [backup], [binlog], [discovery],
-and returns the matching lines. It auto-refreshes every 5 seconds.
+and returns the matching lines. It auto-refreshes every 1 second.
 """
 
 import subprocess
 import threading
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -32,7 +36,11 @@ HTML = """<!DOCTYPE html>
 <title>Recevo Agent Dashboard</title>
 <style>
 body { font-family: monospace; background: #111; color: #ddd; margin: 0; padding: 16px; }
-h1 { font-size: 18px; margin: 0 0 12px 0; }
+h1 { font-size: 18px; margin: 0 0 8px 0; display: inline-block; }
+.status { display: inline-block; margin-left: 16px; font-size: 14px; }
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #0a5; margin-right: 6px; vertical-align: middle; }
+.dot.dead { background: #c00; }
+#uptime { color: #888; font-size: 12px; margin-bottom: 12px; }
 .buttons { margin-bottom: 12px; }
 button { background: #222; color: #ddd; border: 1px solid #444; padding: 8px 14px; margin-right: 6px; cursor: pointer; font-family: monospace; font-size: 14px; }
 button.active { background: #0a5; color: #fff; border-color: #0a5; }
@@ -42,6 +50,8 @@ button.active { background: #0a5; color: #fff; border-color: #0a5; }
 </head>
 <body>
 <h1>Recevo Agent Dashboard</h1>
+<span class="status"><span class="dot" id="dot"></span><span id="alive">...</span></span>
+<div id="uptime"></div>
 <div class="buttons" id="buttons"></div>
 <div id="logs">Select a plugin to see its logs.</div>
 <div class="meta" id="meta"></div>
@@ -51,6 +61,9 @@ let current = "all";
 const btns = document.getElementById("buttons");
 const logsEl = document.getElementById("logs");
 const metaEl = document.getElementById("meta");
+const dotEl = document.getElementById("dot");
+const aliveEl = document.getElementById("alive");
+const uptimeEl = document.getElementById("uptime");
 plugins.forEach(function(name) {
   const b = document.createElement("button");
   b.textContent = name;
@@ -66,11 +79,18 @@ function refresh() {
     .then(function(r) { return r.text(); })
     .then(function(text) {
       logsEl.textContent = text || "No logs for this plugin yet.";
-      metaEl.textContent = "Plugin: " + current + " | refreshed: " + new Date().toLocaleTimeString() + " | auto-refresh every 5s";
+      metaEl.textContent = "Plugin: " + current + " | refreshed: " + new Date().toLocaleTimeString() + " | auto-refresh every 1s";
+    });
+  fetch("/status")
+    .then(function(r) { return r.json(); })
+    .then(function(s) {
+      dotEl.classList.toggle("dead", !s.alive);
+      aliveEl.textContent = s.alive ? "ALIVE" : "DEAD";
+      uptimeEl.textContent = "Last log: " + s.last_log + " | Agent started: " + s.started + " | Uptime: " + s.uptime;
     });
 }
 refresh();
-setInterval(refresh, 5000);
+setInterval(refresh, 1000);
 </script>
 </body>
 </html>
@@ -110,6 +130,16 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if parsed.path == "/status":
+            import json as _json
+            status = _agent_status()
+            body = _json.dumps(status).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         body = HTML.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -121,17 +151,61 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
 
-def _read_logs(plugin):
-    """Return the last 200 journalctl lines for the agent, filtered by plugin."""
+def _journal_lines():
     try:
         result = subprocess.run(
             ["journalctl", "-u", "recevo-agent", "-n", "200", "--no-pager"],
             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
         )
-        lines = result.stdout.splitlines()
-    except Exception as error:
-        return f"Failed to read logs: {error}"
+        return result.stdout.splitlines()
+    except Exception:
+        return []
+
+
+def _read_logs(plugin):
+    """Return the last 200 journalctl lines for the agent, filtered by plugin."""
+    lines = _journal_lines()
+    if not lines:
+        return "Failed to read logs."
     if plugin == "all":
         return "\n".join(lines)
     needle = f"[{plugin}]"
     return "\n".join(line for line in lines if needle in line)
+
+
+def _agent_status():
+    """Return alive flag, last log time, start time, and uptime from journalctl."""
+    lines = _journal_lines()
+    now = datetime.now()
+    if not lines:
+        return {"alive": False, "last_log": "never", "started": "unknown", "uptime": "unknown"}
+    last = lines[-1]
+    first = lines[0]
+    # journalctl lines start with "Nov 20 15:06:40", parse month day time.
+    last_time = _parse_journal_time(last, now)
+    first_time = _parse_journal_time(first, now)
+    alive = False
+    last_log = "unknown"
+    if last_time:
+        last_log = last_time.strftime("%H:%M:%S")
+        alive = (now - last_time).total_seconds() < 30
+    started = "unknown"
+    uptime = "unknown"
+    if first_time:
+        started = first_time.strftime("%H:%M:%S")
+        delta = now - first_time
+        hours, rem = divmod(int(delta.total_seconds()), 3600)
+        minutes, seconds = divmod(rem, 60)
+        uptime = f"{hours}h {minutes}m {seconds}s"
+    return {"alive": alive, "last_log": last_log, "started": started, "uptime": uptime}
+
+
+def _parse_journal_time(line, now):
+    try:
+        parts = line.split()
+        if len(parts) < 3:
+            return None
+        stamp = " ".join(parts[0:3]) + f" {now.year}"
+        return datetime.strptime(stamp, "%b %d %H:%M:%S %Y")
+    except Exception:
+        return None
