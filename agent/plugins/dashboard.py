@@ -8,6 +8,8 @@ grep journalctl by hand.
 
 The header shows a live heartbeat: a green ALIVE dot when the agent logged
 in the last 30 seconds, the time of the last log line, and the agent uptime.
+Uptime is calculated from the systemd service start time, not from the
+journal window, so it stays correct even after many log lines.
 
 Config, under "dashboard":
   enabled: true or false (default false)
@@ -27,13 +29,13 @@ from urllib.parse import urlparse, parse_qs
 
 from plugin import Plugin
 
-PLUGINS = ["backup", "binlog", "discovery", "heartbeat", "minio"]
+PLUGINS = ["backup", "binlog", "discovery", "heartbeat", "minio", "cleanup"]
 
 HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Recevo Agent Dashboard</title>
+<title>Automation Engine Logs</title>
 <style>
 body { font-family: monospace; background: #111; color: #ddd; margin: 0; padding: 16px; }
 h1 { font-size: 18px; margin: 0 0 8px 0; display: inline-block; }
@@ -49,14 +51,14 @@ button.active { background: #0a5; color: #fff; border-color: #0a5; }
 </style>
 </head>
 <body>
-<h1>Recevo Agent Dashboard</h1>
+<h1>Automation Engine Logs</h1>
 <span class="status"><span class="dot" id="dot"></span><span id="alive">...</span></span>
 <div id="uptime"></div>
 <div class="buttons" id="buttons"></div>
 <div id="logs">Select a plugin to see its logs.</div>
 <div class="meta" id="meta"></div>
 <script>
-const plugins = ["all", "backup", "binlog", "discovery", "heartbeat", "minio"];
+const plugins = ["all", "backup", "binlog", "cleanup", "discovery", "heartbeat", "minio"];
 let current = "all";
 const btns = document.getElementById("buttons");
 const logsEl = document.getElementById("logs");
@@ -173,30 +175,67 @@ def _read_logs(plugin):
     return "\n".join(line for line in lines if needle in line)
 
 
+def _service_start_time():
+    """Return the systemd service start time, or None if it cannot be read."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "show", "recevo-agent", "--property=ActiveEnterTimestamp"],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            if line.startswith("ActiveEnterTimestamp="):
+                value = line.split("=", 1)[1].strip()
+                if not value:
+                    return None
+                # Format: "Fri 2026-11-20 23:19:55 IST"
+                try:
+                    return datetime.strptime(value, "%a %Y-%m-%d %H:%M:%S %Z")
+                except Exception:
+                    try:
+                        return datetime.strptime(value, "%a %Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        return None
+        return None
+    except Exception:
+        return None
+
+
 def _agent_status():
-    """Return alive flag, last log time, start time, and uptime from journalctl."""
+    """Return alive flag, last log time, start time, and uptime."""
     lines = _journal_lines()
     now = datetime.now()
     if not lines:
         return {"alive": False, "last_log": "never", "started": "unknown", "uptime": "unknown"}
     last = lines[-1]
-    first = lines[0]
-    # journalctl lines start with "Nov 20 15:06:40", parse month day time.
     last_time = _parse_journal_time(last, now)
-    first_time = _parse_journal_time(first, now)
     alive = False
     last_log = "unknown"
     if last_time:
         last_log = last_time.strftime("%H:%M:%S")
         alive = (now - last_time).total_seconds() < 30
+
+    # Uptime from systemd service start time, not from journal window.
+    started_dt = _service_start_time()
+    if started_dt is None:
+        # Fallback to first journal line.
+        started_dt = _parse_journal_time(lines[0], now)
     started = "unknown"
     uptime = "unknown"
-    if first_time:
-        started = first_time.strftime("%H:%M:%S")
-        delta = now - first_time
-        hours, rem = divmod(int(delta.total_seconds()), 3600)
+    if started_dt:
+        started = started_dt.strftime("%H:%M:%S")
+        delta = now - started_dt
+        total_seconds = int(delta.total_seconds())
+        if total_seconds < 0:
+            total_seconds = 0
+        days, rem = divmod(total_seconds, 86400)
+        hours, rem = divmod(rem, 3600)
         minutes, seconds = divmod(rem, 60)
-        uptime = f"{hours}h {minutes}m {seconds}s"
+        if days > 0:
+            uptime = f"{days}d {hours}h {minutes}m {seconds}s"
+        elif hours > 0:
+            uptime = f"{hours}h {minutes}m {seconds}s"
+        else:
+            uptime = f"{minutes}m {seconds}s"
     return {"alive": alive, "last_log": last_log, "started": started, "uptime": uptime}
 
 
