@@ -22,7 +22,7 @@
       - percona-server-client
       - percona-xtrabackup-84
     state: present
-    update_cache: true
+    update_cache: false
   environment:
     DEBIAN_FRONTEND: noninteractive
 
