@@ -19,6 +19,11 @@ Config, under "minio":
       files: each file in source is one upload unit. A "<file>.uploaded"
         marker is written after upload so it is never uploaded again.
         Files go to <prefix>/<dest>/<file>.
+    kinds: optional list, folders mode only. When set, only upload folders
+      whose manifest.json "kind" is in this list. For example
+      ["incremental"] uploads only incremental backups and skips full ones,
+      so full backups can be handled by a separate plugin later. When
+      omitted, all folders with a manifest are uploaded.
     delete_after_upload: true or false (default false). When true, the local
       folder or file is deleted after a successful upload, to free disk
       space. When false, the local copy is kept. This is a per-job choice,
@@ -33,7 +38,7 @@ Example config:
     "prefix": "agent-proxysql-01",
     "interval_seconds": 120,
     "uploads": [
-      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders", "delete_after_upload": false},
+      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders", "delete_after_upload": false, "kinds": ["incremental"]},
       {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files", "delete_after_upload": true}
     ]
   }
@@ -42,6 +47,7 @@ The backup plugin writes backups to disk; this plugin ships them off-box. They
 are decoupled on purpose, so a MinIO outage never blocks a backup from running.
 """
 
+import json
 import shutil
 from pathlib import Path
 
@@ -90,14 +96,15 @@ class MinioUploadPlugin(Plugin):
         dest = job.get("dest", "").strip("/")
         mode = job.get("mode", "files")
         delete_after = job.get("delete_after_upload", False)
+        kinds = job.get("kinds")
         if not source.is_dir():
             return
         if mode == "folders":
-            self._upload_folders(client, bucket, prefix, source, dest, delete_after)
+            self._upload_folders(client, bucket, prefix, source, dest, delete_after, kinds)
         else:
             self._upload_files(client, bucket, prefix, source, dest, delete_after)
 
-    def _upload_folders(self, client, bucket, prefix, source, dest, delete_after):
+    def _upload_folders(self, client, bucket, prefix, source, dest, delete_after, kinds):
         for folder in sorted(source.iterdir()):
             if not folder.is_dir():
                 continue
@@ -106,6 +113,14 @@ class MinioUploadPlugin(Plugin):
             # Skip folders already uploaded, or still being written (no manifest yet).
             if marker.exists() or not manifest.exists():
                 continue
+            # When kinds is set, only upload folders whose manifest kind matches.
+            if kinds is not None:
+                try:
+                    kind = json.loads(manifest.read_text()).get("kind")
+                except Exception:
+                    kind = None
+                if kind not in kinds:
+                    continue
             for item in folder.iterdir():
                 if item.is_file() and item.name != ".uploaded":
                     key = f"{prefix}/{dest}/{folder.name}/{item.name}"
