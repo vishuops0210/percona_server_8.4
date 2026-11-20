@@ -2,6 +2,8 @@
   "agent_id": "agent-proxysql-01",
   "backup": {
     "path": "/var/backup/mysql",
+    "full_path": "/var/backup/mysql-full",
+    "incremental_path": "/var/backup/mysql-incremental",
     "interval_seconds": 3600,
     "full_interval_seconds": 86400,
     "ansible_dir": "/home/vishal/ansible",
@@ -28,7 +30,8 @@
     "prefix": "agent-proxysql-01",
     "interval_seconds": 120,
     "uploads": [
-      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders", "delete_after_upload": false},
+      {"source": "/var/backup/mysql-full", "dest": "full-backups", "mode": "folders", "delete_after_upload": false},
+      {"source": "/var/backup/mysql-incremental", "dest": "backups", "mode": "folders", "delete_after_upload": false},
       {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files", "delete_after_upload": true}
     ]
   },
