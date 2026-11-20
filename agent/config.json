@@ -14,6 +14,11 @@
     "interval_seconds": 300,
     "path": "/var/backup/binlog"
   },
+  "dashboard": {
+    "enabled": false,
+    "host": "0.0.0.0",
+    "port": 8081
+  },
   "discovery": {
     "interval_seconds": 30
   },
