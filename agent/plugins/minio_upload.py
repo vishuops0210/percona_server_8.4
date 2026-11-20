@@ -19,6 +19,11 @@ Config, under "minio":
       files: each file in source is one upload unit. A "<file>.uploaded"
         marker is written after upload so it is never uploaded again.
         Files go to <prefix>/<dest>/<file>.
+    delete_after_upload: true or false (default false). When true, the local
+      folder or file is deleted after a successful upload, to free disk
+      space. When false, the local copy is kept. This is a per-job choice,
+      so backups can be kept locally while binlogs are deleted, or the
+      other way around.
 
 Example config:
   "minio": {
@@ -28,8 +33,8 @@ Example config:
     "prefix": "agent-proxysql-01",
     "interval_seconds": 120,
     "uploads": [
-      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders"},
-      {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files"}
+      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders", "delete_after_upload": false},
+      {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files", "delete_after_upload": true}
     ]
   }
 
@@ -37,6 +42,7 @@ The backup plugin writes backups to disk; this plugin ships them off-box. They
 are decoupled on purpose, so a MinIO outage never blocks a backup from running.
 """
 
+import shutil
 from pathlib import Path
 
 from plugin import Plugin
@@ -83,14 +89,15 @@ class MinioUploadPlugin(Plugin):
         source = Path(job.get("source", ""))
         dest = job.get("dest", "").strip("/")
         mode = job.get("mode", "files")
+        delete_after = job.get("delete_after_upload", False)
         if not source.is_dir():
             return
         if mode == "folders":
-            self._upload_folders(client, bucket, prefix, source, dest)
+            self._upload_folders(client, bucket, prefix, source, dest, delete_after)
         else:
-            self._upload_files(client, bucket, prefix, source, dest)
+            self._upload_files(client, bucket, prefix, source, dest, delete_after)
 
-    def _upload_folders(self, client, bucket, prefix, source, dest):
+    def _upload_folders(self, client, bucket, prefix, source, dest, delete_after):
         for folder in sorted(source.iterdir()):
             if not folder.is_dir():
                 continue
@@ -106,8 +113,11 @@ class MinioUploadPlugin(Plugin):
                     client.upload_file(str(item), bucket, key)
             marker.write_text("ok")
             print(f"[minio] uploaded {folder.name} to {dest}")
+            if delete_after:
+                shutil.rmtree(folder)
+                print(f"[minio] deleted local folder {folder} after upload")
 
-    def _upload_files(self, client, bucket, prefix, source, dest):
+    def _upload_files(self, client, bucket, prefix, source, dest, delete_after):
         for item in sorted(source.iterdir()):
             if not item.is_file():
                 continue
@@ -121,3 +131,7 @@ class MinioUploadPlugin(Plugin):
             client.upload_file(str(item), bucket, key)
             marker.write_text("ok")
             print(f"[minio] uploaded {item.name} to {dest}")
+            if delete_after:
+                item.unlink()
+                marker.unlink()
+                print(f"[minio] deleted local file {item} after upload")
