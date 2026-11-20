@@ -4,22 +4,25 @@ Remote physical backup plugin (Percona XtraBackup via Ansible).
 Runs on the ProxySQL host (proxy1). The agent identifies a SECONDARY database
 node, then runs an Ansible playbook against it. The playbook installs
 XtraBackup on the secondary, takes the backup there, and fetches the archive
-back to this host. The agent then extracts it and uploads it to MinIO.
+back to this host. The agent then extracts it and writes the manifest.
 
 XtraBackup reads the datadir directly, so it cannot run on proxy1. This
 plugin is how a backup is taken from a separate server: the work happens on
 the secondary, the result lands here.
 
+Full and incremental backups go to separate folders, both from the config:
+  backup.full_path: where full backups land, e.g. /var/backup/mysql-full
+  backup.incremental_path: where incremental backups land,
+    e.g. /var/backup/mysql-incremental
 Takes a full backup once a day and an incremental every hour in between.
-Each backup lands in `backup.path/<id>/` with a `manifest.json` (kind, base,
+Each backup lands in its folder as <id>/ with a manifest.json (kind, base,
 LSN range, binlog position).
 
-It runs once on start, then every `backup.interval_seconds`.
+It runs once on start, then every backup.interval_seconds.
 """
 
 import json
 import shutil
-import socket
 import subprocess
 import tarfile
 import uuid
@@ -38,7 +41,6 @@ class XtraBackupPlugin(Plugin):
         backup_cfg = self.config.get("backup", {})
         interval = backup_cfg.get("interval_seconds", 3600)
         full_interval = backup_cfg.get("full_interval_seconds", 86400)
-        path = backup_cfg.get("path", "/var/backup/mysql")
 
         if not mysql_cfg.get("db_hosts"):
             print("[backup] no mysql.db_hosts configured -- plugin idle")
@@ -46,12 +48,12 @@ class XtraBackupPlugin(Plugin):
 
         while not stop_event.is_set():
             try:
-                self.backup_once(mysql_cfg, backup_cfg, path, full_interval)
+                self.backup_once(mysql_cfg, backup_cfg, full_interval)
             except Exception as error:
                 print(f"[backup] failed: {error}")
             stop_event.wait(interval)
 
-    def backup_once(self, mysql_cfg, backup_cfg, path, full_interval):
+    def backup_once(self, mysql_cfg, backup_cfg, full_interval):
         ansible_dir = backup_cfg.get("ansible_dir", "/home/vishal/ansible")
         ansible_playbook = backup_cfg.get(
             "ansible_playbook", "playbooks/operations/recevo-xtrabackup.yml")
@@ -68,23 +70,32 @@ class XtraBackupPlugin(Plugin):
                 "no SECONDARY node found. Check that the cluster is up and "
                 "discovery can reach it.")
 
-        root = Path(path)
-        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # Full and incremental backups live in separate folders, both from config.
+        full_path = Path(backup_cfg.get("full_path", "/var/backup/mysql-full"))
+        incremental_path = Path(backup_cfg.get("incremental_path", "/var/backup/mysql-incremental"))
+        # Staging area where the playbook fetches the archive, before we move
+        # the extracted folder to its final home.
+        staging_path = Path(backup_cfg.get("path", "/var/backup/mysql"))
+        full_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        incremental_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        staging_path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
-        # Full if there is no finished backup yet, or the last full is older
-        # than full_interval_seconds. Otherwise incremental from the latest
-        # finished backup (full or incremental), so the chain stays linked.
-        latest_full, latest_any = self._latest(root)
+        # Full if there is no finished full backup yet, or the last full is
+        # older than full_interval_seconds. Otherwise incremental from the
+        # latest finished backup (full or incremental), so the chain stays linked.
+        latest_full, latest_any = self._latest(full_path, incremental_path)
         now = datetime.now(timezone.utc)
         if latest_full is None or (now - latest_full[0]).total_seconds() >= full_interval:
             kind = "full"
             base = ""
+            dest_path = full_path
         else:
             kind = "incremental"
             base = latest_any[1].name
+            dest_path = incremental_path
 
         backup_id = now.strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:8]
-        print(f"[backup] {kind} backup of {secondary} -> {root / backup_id}"
+        print(f"[backup] {kind} backup of {secondary} -> {dest_path / backup_id}"
               + (f" (base {base})" if base else ""))
 
         # Run the playbook against the secondary. It installs XtraBackup,
@@ -103,16 +114,18 @@ class XtraBackupPlugin(Plugin):
             tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-20:])
             raise RuntimeError(f"ansible-playbook for {kind} backup failed:\n{tail}")
 
-        # The playbook fetched the archive to <path>/<id>.tar.gz. Extract it
-        # and write the manifest from the XtraBackup metadata inside.
-        archive = root / (backup_id + ".tar.gz")
+        # The playbook fetched the archive to <staging>/<id>.tar.gz. Extract
+        # it there, then move the folder to its final home (full or incremental).
+        archive = staging_path / (backup_id + ".tar.gz")
         if not archive.exists():
             raise RuntimeError(
                 f"playbook finished but {archive} is missing on this host")
-        folder = root / backup_id
         with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(path=root)
+            tar.extractall(path=staging_path)
         archive.unlink()
+
+        folder = dest_path / backup_id
+        shutil.move(str(staging_path / backup_id), str(folder))
 
         checkpoints = self._read_kv(folder / "xtrabackup_checkpoints")
         binlog_file, binlog_pos = self._binlog_position(folder / "xtrabackup_binlog_info")
@@ -142,31 +155,35 @@ class XtraBackupPlugin(Plugin):
                 return str(host)
         return None
 
-    def _latest(self, root):
+    def _latest(self, full_path, incremental_path):
         """Find the latest finished full backup and the latest finished backup.
 
-        Returns (latest_full, latest_any), each a (created_datetime, dir)
-        tuple or None. Only folders with a manifest.json count; a folder
-        without one is an incomplete backup and is ignored.
+        Searches both the full and incremental folders. Returns
+        (latest_full, latest_any), each a (created_datetime, dir) tuple or
+        None. Only folders with a manifest.json count; a folder without one
+        is an incomplete backup and is ignored.
         """
         latest_full = None
         latest_any = None
-        for folder in root.iterdir():
-            if not folder.is_dir():
+        for root in (full_path, incremental_path):
+            if not root.is_dir():
                 continue
-            manifest_path = folder / "manifest.json"
-            if not manifest_path.exists():
-                continue
-            try:
-                manifest = json.loads(manifest_path.read_text())
-                created = datetime.fromisoformat(manifest["created_utc"])
-            except Exception:
-                continue
-            entry = (created, folder)
-            if latest_any is None or created > latest_any[0]:
-                latest_any = entry
-            if manifest.get("kind") == "full" and (latest_full is None or created > latest_full[0]):
-                latest_full = entry
+            for folder in root.iterdir():
+                if not folder.is_dir():
+                    continue
+                manifest_path = folder / "manifest.json"
+                if not manifest_path.exists():
+                    continue
+                try:
+                    manifest = json.loads(manifest_path.read_text())
+                    created = datetime.fromisoformat(manifest["created_utc"])
+                except Exception:
+                    continue
+                entry = (created, folder)
+                if latest_any is None or created > latest_any[0]:
+                    latest_any = entry
+                if manifest.get("kind") == "full" and (latest_full is None or created > latest_full[0]):
+                    latest_full = entry
         return latest_full, latest_any
 
     def _read_kv(self, path):
