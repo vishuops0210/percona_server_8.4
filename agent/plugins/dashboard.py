@@ -8,7 +8,7 @@ grep journalctl by hand.
 
 Config, under "dashboard":
   enabled: true or false (default false)
-  port: the port to listen on (default 8081)
+  port: the port to listen on (default 8000)
   host: the address to bind (default 0.0.0.0)
 
 The dashboard reads logs with journalctl -u recevo-agent, filters by the
@@ -85,7 +85,7 @@ class DashboardPlugin(Plugin):
         if not dashboard_cfg.get("enabled"):
             print("[dashboard] disabled -- plugin idle")
             return
-        port = int(dashboard_cfg.get("port", 8081))
+        port = int(dashboard_cfg.get("port", 8000))
         host = dashboard_cfg.get("host", "0.0.0.0")
 
         server = HTTPServer((host, port), _Handler)
