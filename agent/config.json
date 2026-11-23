@@ -18,7 +18,7 @@
     "enabled": false,
     "interval": "1d",
     "rules": [
-      {"source": "/var/backup/mysql-full", "dest": "full-backups", "keep": "30d", "monthly_keep": "12M", "yearly_keep": "forever"},
+      {"source": "/var/backup/mysql-full", "dest": "full-backups", "keep": "30d", "monthly_keep": "12mo", "yearly_keep": "forever"},
       {"source": "/var/backup/mysql-incremental", "dest": "backups", "keep": "30d"},
       {"source": "/var/backup/binlog", "dest": "binlogs", "keep": "2h"}
     ]
@@ -61,3 +61,4 @@
     "port": 3306
   }
 }
+
