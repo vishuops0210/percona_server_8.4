@@ -35,7 +35,9 @@ from plugin import Plugin
 
 
 def _seconds(value):
-    """Parse a duration like 30s, 5m, 1h, 7d, 12M into seconds. None for forever."""
+    """Parse a duration like 30s, 5m, 1h, 7d, 12mo, 1y into seconds. None for forever.
+    Units: s seconds, m or min minutes, h hours, d days, w weeks,
+    mo or M months (30 days), y years (365 days)."""
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -45,6 +47,19 @@ def _seconds(value):
         return None
     if not value:
         return None
+    lower = value.lower()
+    if lower.endswith("mo") or lower.endswith("mon"):
+        try:
+            number = int(value[:-2] if lower.endswith("mo") else value[:-3])
+            return number * 2592000
+        except ValueError:
+            return None
+    if lower.endswith("min"):
+        try:
+            number = int(value[:-3])
+            return number * 60
+        except ValueError:
+            return None
     unit = value[-1]
     try:
         number = int(value[:-1])
@@ -229,3 +244,4 @@ class CleanupPlugin(Plugin):
                 except Exception as error:
                     print(f"[cleanup] failed to delete s3://{bucket}/{key}: {error}")
         return deleted
+
