@@ -6,16 +6,21 @@ Config under "cleanup":
   rules: a list, each one with:
     source: a local path
     dest: a folder name under s3://<bucket>/<prefix>/
-    keep: how long to keep, e.g. "30d", "12M", "2h", "forever"
-    first_of_month: if true, only keep the first backup of each month
-    first_of_year: if true, only keep the first backup of January
+    keep: how long to keep, e.g. "30d", "2h"
+    monthly_keep: for full backups, how long to keep the first full of each
+      month, e.g. "12M". Optional.
+    yearly_keep: for full backups, how long to keep the first full of January,
+      e.g. "forever". Optional.
 
-Example rules:
-  {"source": "/var/backup/mysql-full", "dest": "full-backups", "keep": "30d"}
+Example:
+  {"source": "/var/backup/mysql-full", "dest": "full-backups", "keep": "30d", "monthly_keep": "12M", "yearly_keep": "forever"}
   {"source": "/var/backup/mysql-incremental", "dest": "backups", "keep": "30d"}
   {"source": "/var/backup/binlog", "dest": "binlogs", "keep": "2h"}
-  {"source": "/var/backup/mysql-full", "dest": "monthly-backups", "keep": "12M", "first_of_month": true}
-  {"source": "/var/backup/mysql-full", "dest": "yearly-backups", "keep": "forever", "first_of_year": true}
+
+All full backups live in one folder, full-backups. The first full of each
+month is kept for monthly_keep, the first full of January is kept for
+yearly_keep. The rest are kept for keep. No separate monthly or yearly
+folders needed.
 
 Keeps the latest folder always, so the backup chain continues.
 Logs every deletion.
@@ -82,17 +87,33 @@ class CleanupPlugin(Plugin):
             source = rule.get("source", "")
             dest = rule.get("dest", "")
             keep = _seconds(rule.get("keep", "30d"))
+            monthly_keep = _seconds(rule.get("monthly_keep"))
+            yearly_keep = _seconds(rule.get("yearly_keep"))
             if keep is None:
                 continue
             cutoff = now - timedelta(seconds=keep)
-            first_of_month = bool(rule.get("first_of_month", False))
-            first_of_year = bool(rule.get("first_of_year", False))
-            deleted["local"] += self._clean_local(source, cutoff, first_of_month, first_of_year)
-            deleted["minio"] += self._clean_minio(dest, cutoff, first_of_month, first_of_year)
+            monthly_cutoff = None
+            if monthly_keep is not None:
+                monthly_cutoff = now - timedelta(seconds=monthly_keep)
+            yearly_cutoff = None
+            if yearly_keep is not None:
+                yearly_cutoff = now - timedelta(seconds=yearly_keep)
+            deleted["local"] += self._clean_local(source, cutoff, monthly_cutoff, yearly_cutoff)
+            deleted["minio"] += self._clean_minio(dest, cutoff, monthly_cutoff, yearly_cutoff)
         print(f"[cleanup] done: local deleted {deleted['local']}, minio deleted {deleted['minio']}")
 
-    def _clean_local(self, path, cutoff, first_of_month, first_of_year):
-        """Delete subfolders older than cutoff, keeping latest and first-of-month/year."""
+    def _is_first_of_month(self, date, all_dates):
+        month_dates = [d for d in all_dates if (d.year, d.month) == (date.year, date.month)]
+        return month_dates and date == min(month_dates)
+
+    def _is_first_of_year(self, date, all_dates):
+        if date.month != 1:
+            return False
+        year_dates = [d for d in all_dates if d.year == date.year and d.month == 1]
+        return year_dates and date == min(year_dates)
+
+    def _clean_local(self, path, cutoff, monthly_cutoff, yearly_cutoff):
+        """Delete subfolders older than cutoff, keeping first-of-month/year and latest."""
         if not os.path.isdir(path):
             return 0
         folders = []
@@ -113,10 +134,13 @@ class CleanupPlugin(Plugin):
         for date, full in folders:
             if full in keep:
                 continue
-            if first_of_month and self._is_first_of_month(date, all_dates):
+            # Keep if it is the first of its month and within monthly retention.
+            if monthly_cutoff is not None and date >= monthly_cutoff and self._is_first_of_month(date, all_dates):
                 continue
-            if first_of_year and self._is_first_of_year(date, all_dates):
-                continue
+            # Keep if it is the first of January and within yearly retention, or forever.
+            if self._is_first_of_year(date, all_dates):
+                if yearly_cutoff is None or date >= yearly_cutoff:
+                    continue
             if date < cutoff:
                 try:
                     shutil.rmtree(full)
@@ -126,17 +150,7 @@ class CleanupPlugin(Plugin):
                     print(f"[cleanup] failed to delete {full}: {error}")
         return deleted
 
-    def _is_first_of_month(self, date, all_dates):
-        month_dates = [d for d in all_dates if (d.year, d.month) == (date.year, date.month)]
-        return month_dates and date == min(month_dates)
-
-    def _is_first_of_year(self, date, all_dates):
-        if date.month != 1:
-            return False
-        year_dates = [d for d in all_dates if d.year == date.year and d.month == 1]
-        return year_dates and date == min(year_dates)
-
-    def _clean_minio(self, dest, cutoff, first_of_month, first_of_year):
+    def _clean_minio(self, dest, cutoff, monthly_cutoff, yearly_cutoff):
         minio_cfg = self.config.get("minio", {})
         if not minio_cfg.get("enabled"):
             return 0
@@ -202,10 +216,11 @@ class CleanupPlugin(Plugin):
             date = _parse_date(first)
             if date is None:
                 continue
-            if first_of_month and self._is_first_of_month(date, all_dates):
+            if monthly_cutoff is not None and date >= monthly_cutoff and self._is_first_of_month(date, all_dates):
                 continue
-            if first_of_year and self._is_first_of_year(date, all_dates):
-                continue
+            if self._is_first_of_year(date, all_dates):
+                if yearly_cutoff is None or date >= yearly_cutoff:
+                    continue
             if date < cutoff:
                 try:
                     s3.delete_object(Bucket=bucket, Key=key)
