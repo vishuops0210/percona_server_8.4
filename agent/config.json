@@ -61,8 +61,8 @@
     "port": 3306
   },
   "restore": {
-    "enabled": false,
-    "mode": "once",
+    "enabled": true,
+    "mode": "warm",
     "interval": "1h",
     "target_time": "",
     "target_host": "",
