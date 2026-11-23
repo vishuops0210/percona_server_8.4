@@ -1,0 +1,21 @@
+---
+# Recevo restore playbook. Restores a prepared XtraBackup to a target host.
+# Run from proxy1, with the target host as a single-host inventory.
+#
+# Example:
+#   ansible-playbook -i 192.168.8.60, -u vishal playbooks/operations/recevo-restore.yml \
+#     --extra-vars "recevo_restore_backup_path=/var/restore/20261123T120000_abc12345 recevo_restore_mysql_root_password=<password>" \
+#     --ask-become-pass
+#
+# Variables:
+#   recevo_restore_backup_path: path on proxy1 to the prepared backup dir
+#   recevo_restore_mysql_root_password: root password to set after restore
+
+- name: Restore Percona MySQL from XtraBackup
+  hosts: all
+  become: true
+  vars:
+    recevo_restore_target_dir: /var/restore
+    recevo_restore_mysql_datadir: /var/lib/mysql
+  roles:
+    - recevo_restore
