@@ -7,7 +7,7 @@ use the same discovery to pick where to read from, so a failover is picked up
 automatically on the next run.
 """
 
-import percona
+from plugins import percona
 from plugin import Plugin
 
 
