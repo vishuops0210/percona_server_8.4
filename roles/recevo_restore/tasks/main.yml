@@ -1,0 +1,67 @@
+---
+# Recevo restore role. Restores a prepared XtraBackup to a target MySQL host.
+# If Percona Server is not installed on the target, installs it first.
+# Then stops MySQL, clears the data dir, copies the prepared backup,
+# fixes permissions, and starts MySQL.
+#
+# Variables:
+#   recevo_restore_backup_path: local path on proxy1 to the prepared backup dir
+#   recevo_restore_target_dir: dir on the target to copy the backup to (default /var/restore)
+#   recevo_restore_mysql_datadir: MySQL data dir on the target (default /var/lib/mysql)
+#   recevo_restore_mysql_root_password: root password to set after restore
+
+- name: Install Percona Server if missing
+  ansible.builtin.include_tasks: install.yml
+
+- name: Stop MySQL
+  ansible.builtin.systemd:
+    name: mysql
+    state: stopped
+  ignore_errors: true
+
+- name: Clear MySQL data dir
+  ansible.builtin.file:
+    path: "{{ recevo_restore_mysql_datadir }}"
+    state: absent
+
+- name: Create MySQL data dir
+  ansible.builtin.file:
+    path: "{{ recevo_restore_mysql_datadir }}"
+    state: directory
+    owner: mysql
+    group: mysql
+    mode: "0750"
+
+- name: Copy prepared backup to target
+  ansible.builtin.copy:
+    src: "{{ recevo_restore_backup_path }}/"
+    dest: "{{ recevo_restore_mysql_datadir }}/"
+    owner: mysql
+    group: mysql
+    mode: preserve
+    remote_src: false
+
+- name: Fix MySQL data dir permissions
+  ansible.builtin.file:
+    path: "{{ recevo_restore_mysql_datadir }}"
+    owner: mysql
+    group: mysql
+    recurse: true
+
+- name: Start MySQL
+  ansible.builtin.systemd:
+    name: mysql
+    state: started
+    enabled: true
+
+- name: Wait for MySQL to be ready
+  ansible.builtin.wait_for:
+    port: 3306
+    delay: 5
+    timeout: 120
+
+- name: Set MySQL root password
+  ansible.builtin.shell: |
+    mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ recevo_restore_mysql_root_password }}';"
+  when: recevo_restore_mysql_root_password | default("") | length > 0
+  ignore_errors: true
