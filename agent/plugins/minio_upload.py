@@ -20,11 +20,11 @@ Config under "minio":
     delete_after_upload: if true, delete the local unit after a successful
       upload (default false)
 
-For full backups, the plugin asks the strategy module which folders the
-backup should go to. The strategy decides based on the date: every full goes
-to full-backups, the first full of a month also goes to monthly-backups, and
-the first full of January also goes to yearly-backups. The strategy is a
-separate module, so you can change the rules in one place.
+For full backups, the plugin also uploads to monthly-backups and
+yearly-backups when the backup is the first full of its month or year.
+Monthly is the first full of the month, yearly is the first full of January.
+This is GFS retention: the monthly folder keeps one full per month for 12
+months, the yearly folder keeps one full per year forever.
 
 Runs once on start, then every minio.interval_seconds.
 """
@@ -33,8 +33,6 @@ import os
 import time
 
 from pathlib import Path
-
-from plugins import strategy
 
 from plugin import Plugin
 
@@ -107,10 +105,10 @@ class MinIOUploadPlugin(Plugin):
                 if marker.exists():
                     continue
                 self._upload_folder(s3, bucket, base_key, folder)
-                # For full backups, the strategy decides if it also goes to
-                # monthly and yearly folders.
+                # For full backups, also upload to monthly and yearly folders
+                # if this is the first full of its month or year.
                 if dest == "full-backups":
-                    self._upload_strategy_dests(s3, bucket, prefix, folder)
+                    self._upload_monthly_yearly(s3, bucket, prefix, folder)
                 marker.touch()
                 print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{base_key}/{folder.name}")
                 if delete_after:
@@ -143,8 +141,8 @@ class MinIOUploadPlugin(Plugin):
             key = f"{base_key}/{folder.name}/{rel}"
             s3.upload_file(str(path), bucket, key)
 
-    def _upload_strategy_dests(self, s3, bucket, prefix, folder):
-        """Upload a full backup to the strategy dests (monthly, yearly) if it qualifies."""
+    def _upload_monthly_yearly(self, s3, bucket, prefix, folder):
+        """Upload a full backup to monthly-backups and yearly-backups if it is the first of its month or year."""
         try:
             import json
             from datetime import datetime
@@ -156,61 +154,53 @@ class MinIOUploadPlugin(Plugin):
         except Exception:
             return
 
-        # Ask the strategy which dests this backup should go to.
-        # The strategy checks MinIO for existing monthly/yearly backups,
-        # so we only upload if this is the first of its month or year.
-        existing_months = self._existing_months(s3, bucket, prefix)
-        existing_years = self._existing_years(s3, bucket, prefix)
-        dests = strategy.dests_for(date, existing_months, existing_years)
-        for dest in dests:
-            if dest == "full-backups":
-                continue
-            dest_key = f"{prefix}/{dest}" if prefix else dest
-            self._upload_folder(s3, bucket, dest_key, folder)
-            print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{dest_key}/{folder.name} ({dest})")
-
-    def _existing_months(self, s3, bucket, prefix):
-        """Return a set of (year, month) tuples that already have a monthly backup."""
-        from datetime import datetime
-        dest_prefix = f"{prefix}/monthly-backups/" if prefix else "monthly-backups/"
-        months = set()
+        # Monthly: first full of the month. Check if monthly-backups already
+        # has a folder for this month.
+        monthly_prefix = f"{prefix}/monthly-backups/" if prefix else "monthly-backups/"
         try:
             paginator = s3.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=bucket, Prefix=dest_prefix)
+            pages = paginator.paginate(Bucket=bucket, Prefix=monthly_prefix)
+            existing_months = set()
             for page in pages:
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
-                    rel = key[len(dest_prefix):]
+                    rel = key[len(monthly_prefix):]
                     first = rel.split("/")[0] if rel else ""
                     if first:
                         try:
                             d = datetime.strptime(first.split("_")[0], "%Y%m%dT%H%M%S")
-                            months.add((d.year, d.month))
+                            existing_months.add((d.year, d.month))
                         except Exception:
                             continue
+            if (date.year, date.month) not in existing_months:
+                dest_key = f"{prefix}/monthly-backups" if prefix else "monthly-backups"
+                self._upload_folder(s3, bucket, dest_key, folder)
+                print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{dest_key}/{folder.name} (first full of the month)")
         except Exception as error:
-            print(f"[minio] monthly list failed: {error}")
-        return months
+            print(f"[minio] monthly check failed for {folder.name}: {error}")
 
-    def _existing_years(self, s3, bucket, prefix):
-        """Return a set of years that already have a yearly backup."""
-        from datetime import datetime
-        dest_prefix = f"{prefix}/yearly-backups/" if prefix else "yearly-backups/"
-        years = set()
-        try:
-            paginator = s3.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=bucket, Prefix=dest_prefix)
-            for page in pages:
-                for obj in page.get("Contents", []):
-                    key = obj["Key"]
-                    rel = key[len(dest_prefix):]
-                    first = rel.split("/")[0] if rel else ""
-                    if first:
-                        try:
-                            d = datetime.strptime(first.split("_")[0], "%Y%m%dT%H%M%S")
-                            years.add(d.year)
-                        except Exception:
-                            continue
-        except Exception as error:
-            print(f"[minio] yearly list failed: {error}")
-        return years
+        # Yearly: first full of January. Check if yearly-backups already has
+        # a folder for this year.
+        if date.month == 1:
+            yearly_prefix = f"{prefix}/yearly-backups/" if prefix else "yearly-backups/"
+            try:
+                paginator = s3.get_paginator("list_objects_v2")
+                pages = paginator.paginate(Bucket=bucket, Prefix=yearly_prefix)
+                existing_years = set()
+                for page in pages:
+                    for obj in page.get("Contents", []):
+                        key = obj["Key"]
+                        rel = key[len(yearly_prefix):]
+                        first = rel.split("/")[0] if rel else ""
+                        if first:
+                            try:
+                                d = datetime.strptime(first.split("_")[0], "%Y%m%dT%H%M%S")
+                                existing_years.add(d.year)
+                            except Exception:
+                                continue
+                if date.year not in existing_years:
+                    dest_key = f"{prefix}/yearly-backups" if prefix else "yearly-backups"
+                    self._upload_folder(s3, bucket, dest_key, folder)
+                    print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{dest_key}/{folder.name} (first full of the year)")
+            except Exception as error:
+                print(f"[minio] yearly check failed for {folder.name}: {error}")
