@@ -11,11 +11,25 @@ Retention policy, from config under "cleanup":
   full_retention_days: keep full backups for this many days (default 30)
   incremental_retention_days: keep incrementals for this many days (default 7)
   binlog_retention_hours: keep binlogs for this many hours (default 2)
+  monthly_retention_months: keep monthly full backups for this many months (default 12)
+  yearly_retention_years: keep yearly full backups for this many years (default 0, forever)
+
+GFS retention for full backups:
+  Daily: keep fulls from the last full_retention_days (30 days).
+  Weekly: keep the first full of each week for 4 weeks (the weekly keep).
+  Monthly: keep the first full of each month for monthly_retention_months (12 months).
+  Yearly: keep the first full of January for yearly_retention_years (0 means forever).
+
+The monthly and yearly fulls are kept in separate folders in MinIO:
+  monthly-backups/ and yearly-backups/, under the agent prefix. They are
+  copied there by the backup plugin when a full is the first of its month
+  or year. Local disk only keeps the recent fulls; monthly and yearly are
+  MinIO only, to save local disk.
 
 Paths are read from the backup and binlog config sections. MinIO settings
 are read from the minio config section. The same retention applies to both
-local disk and MinIO. The plugin logs every deletion, so you can see it in
-the dashboard.
+local disk and MinIO for daily/weekly. The plugin logs every deletion, so
+you can see it in the dashboard.
 """
 
 import os
@@ -47,6 +61,8 @@ class CleanupPlugin(Plugin):
         full_days = int(cleanup_cfg.get("full_retention_days", 30))
         incr_days = int(cleanup_cfg.get("incremental_retention_days", 7))
         binlog_hours = int(cleanup_cfg.get("binlog_retention_hours", 2))
+        monthly_months = int(cleanup_cfg.get("monthly_retention_months", 12))
+        yearly_years = int(cleanup_cfg.get("yearly_retention_years", 0))
 
         backup_cfg = self.config.get("backup", {})
         full_path = backup_cfg.get("full_path", "/var/backup/mysql-full")
@@ -54,25 +70,86 @@ class CleanupPlugin(Plugin):
         binlog_path = self.config.get("binlog", {}).get("path", "/var/backup/binlog")
 
         while not stop_event.wait(interval):
-            self._cleanup_once(full_path, incr_path, binlog_path, full_days, incr_days, binlog_hours)
+            self._cleanup_once(full_path, incr_path, binlog_path, full_days, incr_days, binlog_hours, monthly_months, yearly_years)
 
-    def _cleanup_once(self, full_path, incr_path, binlog_path, full_days, incr_days, binlog_hours):
+    def _cleanup_once(self, full_path, incr_path, binlog_path, full_days, incr_days, binlog_hours, monthly_months, yearly_years):
         now = datetime.now()
         full_cutoff = now - timedelta(days=full_days)
         incr_cutoff = now - timedelta(days=incr_days)
         binlog_cutoff = now - timedelta(hours=binlog_hours)
+        monthly_cutoff = now - timedelta(days=monthly_months * 30)
+        yearly_cutoff = None
+        if yearly_years > 0:
+            yearly_cutoff = now - timedelta(days=yearly_years * 365)
 
-        # Local full backups, keep the latest one always.
-        deleted_fulls = self._clean_folders(full_path, full_cutoff, keep_latest=True)
+        # Local full backups, keep the latest one always, plus GFS keeps.
+        deleted_fulls = self._clean_folders_gfs(full_path, full_cutoff, monthly_cutoff, yearly_cutoff)
         # Local incrementals, keep the latest one always.
         deleted_incrs = self._clean_folders(incr_path, incr_cutoff, keep_latest=True)
         # Local binlogs, delete by file mtime, no keep-latest rule.
         deleted_binlogs = self._clean_files(binlog_path, binlog_cutoff)
 
-        # MinIO, same retention, same keep-latest rule for backups.
-        minio_deleted = self._clean_minio(full_cutoff, incr_cutoff, binlog_cutoff)
+        # MinIO, same retention, plus monthly and yearly folders.
+        minio_deleted = self._clean_minio(full_cutoff, incr_cutoff, binlog_cutoff, monthly_cutoff, yearly_cutoff)
 
         print(f"[cleanup] done: local fulls deleted {deleted_fulls}, incrementals deleted {deleted_incrs}, binlogs deleted {deleted_binlogs}, minio objects deleted {minio_deleted}")
+
+    def _is_gfs_keep(self, date, monthly_cutoff, yearly_cutoff, all_dates):
+        """Check if a backup date should be kept for GFS reasons.
+
+        Keeps the first full of each month (within monthly retention) and
+        the first full of January (within yearly retention, or forever if
+        yearly_cutoff is None).
+        """
+        # Monthly: first full of the month, within monthly retention.
+        if date >= monthly_cutoff:
+            # Check if this is the first full in its month.
+            month_key = (date.year, date.month)
+            month_dates = [d for d in all_dates if (d.year, d.month) == month_key]
+            if month_dates and date == min(month_dates):
+                return True
+        # Yearly: first full of January, within yearly retention or forever.
+        if date.month == 1:
+            if yearly_cutoff is None or date >= yearly_cutoff:
+                year_dates = [d for d in all_dates if d.year == date.year and d.month == 1]
+                if year_dates and date == min(year_dates):
+                    return True
+        return False
+
+    def _clean_folders_gfs(self, path, cutoff, monthly_cutoff, yearly_cutoff):
+        """Delete subfolders older than cutoff, keeping GFS monthly/yearly and latest."""
+        if not os.path.isdir(path):
+            return 0
+        folders = []
+        for name in os.listdir(path):
+            full = os.path.join(path, name)
+            if not os.path.isdir(full):
+                continue
+            date = _parse_backup_date(name)
+            if date is None:
+                continue
+            folders.append((date, full, name))
+        if not folders:
+            return 0
+        folders.sort()
+        all_dates = [d for d, _, _ in folders]
+        deleted = 0
+        # Keep the latest folder always.
+        keep = {folders[-1][1]}
+        for date, full, name in folders:
+            if full in keep:
+                continue
+            # Keep if it is a GFS monthly or yearly keeper.
+            if self._is_gfs_keep(date, monthly_cutoff, yearly_cutoff, all_dates):
+                continue
+            if date < cutoff:
+                try:
+                    shutil.rmtree(full)
+                    print(f"[cleanup] deleted local folder {full}")
+                    deleted += 1
+                except Exception as error:
+                    print(f"[cleanup] failed to delete {full}: {error}")
+        return deleted
 
     def _clean_folders(self, path, cutoff, keep_latest=True):
         """Delete subfolders older than cutoff. Keeps the latest folder if keep_latest."""
@@ -91,7 +168,6 @@ class CleanupPlugin(Plugin):
             return 0
         folders.sort()
         deleted = 0
-        # Keep the latest folder always, so the backup chain continues.
         keep = {folders[-1][1]} if keep_latest else set()
         for date, full, name in folders:
             if full in keep:
@@ -132,7 +208,7 @@ class CleanupPlugin(Plugin):
                     print(f"[cleanup] failed to delete {full}: {error}")
         return deleted
 
-    def _clean_minio(self, full_cutoff, incr_cutoff, binlog_cutoff):
+    def _clean_minio(self, full_cutoff, incr_cutoff, binlog_cutoff, monthly_cutoff, yearly_cutoff):
         """Delete expired objects from MinIO under the agent prefix."""
         minio_cfg = self.config.get("minio", {})
         if not minio_cfg.get("enabled"):
@@ -161,15 +237,18 @@ class CleanupPlugin(Plugin):
             print(f"[cleanup] MinIO client failed: {error}")
             return 0
 
-        # Map each dest folder to its cutoff. full-backups uses full cutoff,
-        # backups (incrementals) uses incremental cutoff, binlogs uses binlog cutoff.
         dest_cutoffs = {
             "full-backups": full_cutoff,
             "backups": incr_cutoff,
             "binlogs": binlog_cutoff,
+            "monthly-backups": monthly_cutoff,
+            "yearly-backups": yearly_cutoff,
         }
         deleted = 0
         for dest, cutoff in dest_cutoffs.items():
+            if cutoff is None:
+                # Yearly with 0 years means keep forever, skip deletion.
+                continue
             dest_prefix = f"{prefix}/{dest}/" if prefix else f"{dest}/"
             try:
                 paginator = s3.get_paginator("list_objects_v2")
@@ -183,30 +262,38 @@ class CleanupPlugin(Plugin):
                 continue
             # For backups, keep the latest folder. For binlogs, no keep-latest.
             keep_key = None
-            if dest in ("full-backups", "backups"):
-                # Find the latest folder name in the keys.
+            if dest in ("full-backups", "backups", "monthly-backups", "yearly-backups"):
                 folders = set()
                 for key in keys:
                     parts = key[len(dest_prefix):].split("/")
                     if parts and parts[0]:
                         folders.add(parts[0])
                 if folders:
-                    dated = [( _parse_backup_date(f), f) for f in folders]
+                    dated = [(_parse_backup_date(f), f) for f in folders]
                     dated = [(d, f) for d, f in dated if d is not None]
                     if dated:
                         dated.sort()
                         keep_key = dest_prefix + dated[-1][1]
             for key in keys:
-                # Skip the latest backup folder entirely.
                 if keep_key and key.startswith(keep_key):
                     continue
-                # Parse the date from the folder or file name.
                 rel = key[len(dest_prefix):]
                 first = rel.split("/")[0] if rel else ""
                 date = _parse_backup_date(first)
                 if date is None:
-                    # For binlogs, use the object LastModified from list, re-fetch if needed.
                     continue
+                # For full-backups, apply GFS keep before deleting.
+                if dest == "full-backups":
+                    # Get all dates in this dest to check GFS.
+                    all_dates = []
+                    for k in keys:
+                        r = k[len(dest_prefix):]
+                        f = r.split("/")[0] if r else ""
+                        d = _parse_backup_date(f)
+                        if d is not None:
+                            all_dates.append(d)
+                    if self._is_gfs_keep(date, monthly_cutoff, yearly_cutoff, all_dates):
+                        continue
                 if date < cutoff:
                     try:
                         s3.delete_object(Bucket=bucket, Key=key)
