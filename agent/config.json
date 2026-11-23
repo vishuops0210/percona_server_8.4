@@ -59,5 +59,12 @@
     "mysql_bin": "mysql",
     "mysqlbinlog_bin": "mysqlbinlog",
     "port": 3306
+  },
+  "restore": {
+    "enabled": false,
+    "target_time": "",
+    "target_host": "",
+    "target_dir": "/var/restore",
+    "ansible_user": "vishal"
   }
 }
