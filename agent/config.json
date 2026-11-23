@@ -64,7 +64,12 @@
     "enabled": false,
     "target_time": "",
     "target_host": "",
+    "target_user": "vishal",
+    "target_ssh_key": "/home/vishal/.ssh/id_rsa",
+    "target_mysql_root_password": "",
     "target_dir": "/var/restore",
+    "ansible_dir": "/home/vishal/ansible",
+    "ansible_playbook": "playbooks/operations/recevo-restore.yml",
     "ansible_user": "vishal"
   }
 }
