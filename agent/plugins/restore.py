@@ -16,7 +16,8 @@ Config under "restore":
   target_host: the IP of the MySQL host to restore to, e.g. "192.168.8.60"
     If empty, restores to a local directory for inspection only.
   target_dir: where to download and prepare the backup, e.g. "/var/restore"
-  ansible_user: the SSH user for the target host, e.g. "vishal"
+  target_user: the SSH user on the target host, e.g. "ubuntu" on AWS
+  target_ssh_key: the private key file to SSH with, e.g. "/home/vishal/Downloads/default.pem"
 
 How restore works:
   1. Lists full backups in MinIO under <prefix>/full-backups/, picks the
@@ -312,6 +313,7 @@ class RestorePlugin(Plugin):
             tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-30:])
             raise RuntimeError(f"ansible-playbook for restore failed:\n{tail}")
         print(f"[restore] restore to {target_host} done")
+
 
 
 
