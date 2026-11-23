@@ -28,12 +28,27 @@ from plugin import Plugin
 
 
 def _seconds(value, default=0):
-    """Parse a duration like 30s, 5m, 1h, 7d, 1M into seconds."""
+    """Parse a duration like 30s, 5m, 1h, 7d, 12mo, 1y into seconds.
+    Units: s seconds, m or min minutes, h hours, d days, w weeks,
+    mo or M months (30 days), y years (365 days)."""
     if isinstance(value, (int, float)):
         return int(value)
     value = str(value).strip()
     if not value:
         return default
+    lower = value.lower()
+    if lower.endswith("mo") or lower.endswith("mon"):
+        try:
+            number = int(value[:-2] if lower.endswith("mo") else value[:-3])
+            return number * 2592000
+        except ValueError:
+            return default
+    if lower.endswith("min"):
+        try:
+            number = int(value[:-3])
+            return number * 60
+        except ValueError:
+            return default
     unit = value[-1]
     try:
         number = int(value[:-1])
@@ -260,3 +275,4 @@ class XtraBackupPlugin(Plugin):
             except ValueError:
                 return parts[0].strip(), 0
         return "", 0
+
