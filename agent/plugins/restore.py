@@ -101,10 +101,13 @@ class RestorePlugin(Plugin):
         if mode == "warm":
             # Warm standby: restore the latest backup to the target every
             # interval, keeping the target up to date. Runs forever until disabled.
+            # target_time is ignored in warm mode, it always restores to latest.
             print(f"[restore] warm standby mode, restoring latest backup every {cfg.get('interval', '1h')}")
+            warm_cfg = dict(cfg)
+            warm_cfg["target_time"] = ""
             while not stop_event.is_set():
                 try:
-                    self.restore_once(cfg)
+                    self.restore_once(warm_cfg)
                 except Exception as error:
                     print(f"[restore] failed: {error}")
                 stop_event.wait(interval)
@@ -313,6 +316,7 @@ class RestorePlugin(Plugin):
             tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-30:])
             raise RuntimeError(f"ansible-playbook for restore failed:\n{tail}")
         print(f"[restore] restore to {target_host} done")
+
 
 
 
