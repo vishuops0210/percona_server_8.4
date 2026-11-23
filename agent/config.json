@@ -62,6 +62,8 @@
   },
   "restore": {
     "enabled": false,
+    "mode": "once",
+    "interval": "1h",
     "target_time": "",
     "target_host": "",
     "target_user": "vishal",
