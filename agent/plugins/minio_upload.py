@@ -1,137 +1,202 @@
 """
-MinIO upload plugin, generic.
+MinIO upload plugin.
 
-Uploads local folders to a MinIO bucket. MinIO speaks the S3 API, so this
-uses boto3 (pip install boto3). What to upload is driven by the config, not
-hardcoded in the plugin, so the same plugin can ship backups, binlogs, or
-anything else.
+Uploads local backup folders and binlog files to a MinIO bucket, so a local
+disk failure does not lose the backups. Each upload is idempotent: a unit
+already uploaded is skipped, and a unit with a marker is not uploaded again.
 
-Config, under "minio":
-  enabled, endpoint, access_key, secret_key, bucket, prefix,
-  interval_seconds, and uploads, a list of jobs. Each job has:
-    source: local path to upload from
-    dest:   destination prefix inside s3://<bucket>/<prefix>/
-    mode:   "folders" or "files"
-      folders: each subdirectory of source is one upload unit. A unit is
-        uploaded only when it has a manifest.json, and a local ".uploaded"
-        marker is written so it is never uploaded again. All files inside
-        the unit go to <prefix>/<dest>/<unit>/<file>.
-      files: each file in source is one upload unit. A "<file>.uploaded"
-        marker is written after upload so it is never uploaded again.
-        Files go to <prefix>/<dest>/<file>.
-    delete_after_upload: true or false (default false). When true, the local
-      folder or file is deleted after a successful upload, to free disk
-      space. When false, the local copy is kept. This is a per-job choice,
-      so backups can be kept locally while binlogs are deleted, or the
-      other way around.
+Config under "minio":
+  enabled: true or false (default false)
+  endpoint: the MinIO API URL, e.g. https://minio.ldc.opstree.dev:9000
+  bucket: the MinIO bucket name
+  prefix: the folder name inside the bucket, e.g. agent-proxysql-01
+  access_key / secret_key: the credentials, scoped to the bucket
+  interval_seconds: how often to check for new units (default 120)
+  uploads: a list of jobs, each one with:
+    source: a local path
+    dest: a folder name under s3://<bucket>/<prefix>/
+    mode: "folders" (each subfolder is a unit, needs manifest.json)
+      or "files" (each file is a unit)
+    delete_after_upload: if true, delete the local unit after a successful
+      upload (default false)
 
-Example config:
-  "minio": {
-    "enabled": true,
-    "endpoint": "https://minio.ldc.opstree.dev:9000",
-    "bucket": "automation-percona-backup",
-    "prefix": "agent-proxysql-01",
-    "interval_seconds": 120,
-    "uploads": [
-      {"source": "/var/backup/mysql", "dest": "backups", "mode": "folders", "delete_after_upload": false},
-      {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files", "delete_after_upload": true}
-    ]
-  }
+For monthly and yearly full backups: when a full backup is the first full
+of its month, it is also uploaded to the monthly-backups folder. When it is
+the first full of January, it is also uploaded to the yearly-backups folder.
+This is detected by the backup plugin writing a flag in the manifest, and
+the minio plugin reading that flag.
 
-The backup plugin writes backups to disk; this plugin ships them off-box. They
-are decoupled on purpose, so a MinIO outage never blocks a backup from running.
+Runs once on start, then every minio.interval_seconds.
 """
 
-import shutil
+import os
+import time
+
 from pathlib import Path
 
 from plugin import Plugin
 
 
-class MinioUploadPlugin(Plugin):
-    name = "minio-upload"
+class MinIOUploadPlugin(Plugin):
+    name = "minio"
 
     def run(self, stop_event):
         minio_cfg = self.config.get("minio", {})
-        interval = minio_cfg.get("interval_seconds", 120)
-
-        if not minio_cfg.get("enabled") or not minio_cfg.get("endpoint"):
+        if not minio_cfg.get("enabled"):
             print("[minio] disabled or no endpoint -- plugin idle")
             return
-
-        # Import boto3 here so the agent still runs if boto3 is not installed.
         try:
             import boto3
         except ImportError:
-            print("[minio] boto3 not installed (pip install boto3) -- plugin idle")
+            print("[minio] boto3 not installed -- plugin idle")
+            return
+        interval = minio_cfg.get("interval_seconds", 120)
+        endpoint = minio_cfg.get("endpoint", "")
+        bucket = minio_cfg.get("bucket", "")
+        prefix = minio_cfg.get("prefix", "")
+        access_key = minio_cfg.get("access_key", "")
+        secret_key = minio_cfg.get("secret_key", "")
+
+        if not endpoint or not bucket or not access_key or not secret_key:
+            print("[minio] missing endpoint, bucket or credentials -- plugin idle")
             return
 
-        client = boto3.client(
+        s3 = boto3.client(
             "s3",
-            endpoint_url=minio_cfg["endpoint"],
-            aws_access_key_id=minio_cfg.get("access_key"),
-            aws_secret_access_key=minio_cfg.get("secret_key"),
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
         )
-        bucket = minio_cfg.get("bucket", "percona-backup")
-        prefix = minio_cfg.get("prefix", self.config.get("agent_id", "agent"))
         uploads = minio_cfg.get("uploads", [])
+        if not uploads:
+            print("[minio] no uploads configured -- plugin idle")
+            return
 
-        print(f"[minio] uploading to s3://{bucket}/{prefix} every {interval}s")
         while not stop_event.is_set():
-            try:
-                for job in uploads:
-                    self.upload_job(client, bucket, prefix, job)
-            except Exception as error:
-                print(f"[minio] failed: {error}")
+            for job in uploads:
+                try:
+                    self._upload_job(s3, bucket, prefix, job)
+                except Exception as error:
+                    print(f"[minio] job failed ({job.get('source')} -> {job.get('dest')}): {error}")
             stop_event.wait(interval)
 
-    def upload_job(self, client, bucket, prefix, job):
+    def _upload_job(self, s3, bucket, prefix, job):
         source = Path(job.get("source", ""))
-        dest = job.get("dest", "").strip("/")
-        mode = job.get("mode", "files")
-        delete_after = job.get("delete_after_upload", False)
+        dest = job.get("dest", "")
+        mode = job.get("mode", "folders")
+        delete_after = bool(job.get("delete_after_upload", False))
+
         if not source.is_dir():
             return
+        if not dest:
+            return
+
+        base_key = f"{prefix}/{dest}" if prefix else dest
+
         if mode == "folders":
-            self._upload_folders(client, bucket, prefix, source, dest, delete_after)
-        else:
-            self._upload_files(client, bucket, prefix, source, dest, delete_after)
+            for folder in sorted(source.iterdir()):
+                if not folder.is_dir():
+                    continue
+                # A folder is ready to upload when the backup plugin has
+                # finished it, which it signals by writing manifest.json.
+                if not (folder / "manifest.json").exists():
+                    continue
+                marker = folder / ".uploaded"
+                if marker.exists():
+                    continue
+                self._upload_folder(s3, bucket, base_key, folder)
+                # For monthly and yearly fulls, also upload to those folders.
+                if dest == "full-backups":
+                    self._upload_monthly_yearly(s3, bucket, prefix, folder)
+                marker.touch()
+                print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{base_key}/{folder.name}")
+                if delete_after:
+                    import shutil
+                    shutil.rmtree(folder)
+                    print(f"[minio] deleted local folder {folder} after upload")
+        elif mode == "files":
+            for path in sorted(source.iterdir()):
+                if not path.is_file():
+                    continue
+                if path.suffix == ".uploaded":
+                    continue
+                marker = Path(str(path) + ".uploaded")
+                if marker.exists():
+                    continue
+                key = f"{base_key}/{path.name}"
+                s3.upload_file(str(path), bucket, key)
+                marker.touch()
+                print(f"[minio] uploaded {path.name} -> s3://{bucket}/{key}")
+                if delete_after:
+                    path.unlink()
+                    marker.unlink()
+                    print(f"[minio] deleted local file {path} after upload")
 
-    def _upload_folders(self, client, bucket, prefix, source, dest, delete_after):
-        for folder in sorted(source.iterdir()):
-            if not folder.is_dir():
+    def _upload_folder(self, s3, bucket, base_key, folder):
+        for path in sorted(folder.rglob("*")):
+            if not path.is_file():
                 continue
-            marker = folder / ".uploaded"
-            manifest = folder / "manifest.json"
-            # Skip folders already uploaded, or still being written (no manifest yet).
-            if marker.exists() or not manifest.exists():
-                continue
-            for item in folder.iterdir():
-                if item.is_file() and item.name != ".uploaded":
-                    key = f"{prefix}/{dest}/{folder.name}/{item.name}"
-                    print(f"[minio] uploading {item} -> s3://{bucket}/{key}")
-                    client.upload_file(str(item), bucket, key)
-            marker.write_text("ok")
-            print(f"[minio] uploaded {folder.name} to {dest}")
-            if delete_after:
-                shutil.rmtree(folder)
-                print(f"[minio] deleted local folder {folder} after upload")
+            rel = path.relative_to(folder)
+            key = f"{base_key}/{folder.name}/{rel}"
+            s3.upload_file(str(path), bucket, key)
 
-    def _upload_files(self, client, bucket, prefix, source, dest, delete_after):
-        for item in sorted(source.iterdir()):
-            if not item.is_file():
-                continue
-            if item.name.endswith(".uploaded"):
-                continue
-            marker = Path(str(item) + ".uploaded")
-            if marker.exists():
-                continue
-            key = f"{prefix}/{dest}/{item.name}"
-            print(f"[minio] uploading {item} -> s3://{bucket}/{key}")
-            client.upload_file(str(item), bucket, key)
-            marker.write_text("ok")
-            print(f"[minio] uploaded {item.name} to {dest}")
-            if delete_after:
-                item.unlink()
-                marker.unlink()
-                print(f"[minio] deleted local file {item} after upload")
+    def _upload_monthly_yearly(self, s3, bucket, prefix, folder):
+        """Upload a full backup to monthly-backups and yearly-backups if it is the first of its month or year."""
+        try:
+            import json
+            manifest = json.loads((folder / "manifest.json").read_text())
+            created = manifest.get("created_utc", "")
+            if not created:
+                return
+            from datetime import datetime
+            date = datetime.fromisoformat(created)
+        except Exception:
+            return
+
+        # Check if this is the first full of its month.
+        monthly_prefix = f"{prefix}/monthly-backups/" if prefix else "monthly-backups/"
+        monthly_key = f"{monthly_prefix}{folder.name}/"
+        try:
+            paginator = s3.get_paginator("list_objects_v2")
+            pages = paginator.paginate(Bucket=bucket, Prefix=monthly_prefix)
+            existing_months = set()
+            for page in pages:
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    rel = key[len(monthly_prefix):]
+                    first = rel.split("/")[0] if rel else ""
+                    if first:
+                        try:
+                            d = datetime.strptime(first.split("_")[0], "%Y%m%dT%H%M%S")
+                            existing_months.add((d.year, d.month))
+                        except Exception:
+                            continue
+            if (date.year, date.month) not in existing_months:
+                self._upload_folder(s3, bucket, f"{prefix}/monthly-backups" if prefix else "monthly-backups", folder)
+                print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{prefix}/monthly-backups/{folder.name} (first full of the month)")
+        except Exception as error:
+            print(f"[minio] monthly check failed for {folder.name}: {error}")
+
+        # Check if this is the first full of January.
+        if date.month == 1:
+            yearly_prefix = f"{prefix}/yearly-backups/" if prefix else "yearly-backups/"
+            try:
+                paginator = s3.get_paginator("list_objects_v2")
+                pages = paginator.paginate(Bucket=bucket, Prefix=yearly_prefix)
+                existing_years = set()
+                for page in pages:
+                    for obj in page.get("Contents", []):
+                        key = obj["Key"]
+                        rel = key[len(yearly_prefix):]
+                        first = rel.split("/")[0] if rel else ""
+                        if first:
+                            try:
+                                d = datetime.strptime(first.split("_")[0], "%Y%m%dT%H%M%S")
+                                existing_years.add(d.year)
+                            except Exception:
+                                continue
+                if date.year not in existing_years:
+                    self._upload_folder(s3, bucket, f"{prefix}/yearly-backups" if prefix else "yearly-backups", folder)
+                    print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{prefix}/yearly-backups/{folder.name} (first full of the year)")
+            except Exception as error:
+                print(f"[minio] yearly check failed for {folder.name}: {error}")
