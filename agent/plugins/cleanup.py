@@ -14,17 +14,10 @@ Retention policy, from config under "cleanup":
   monthly_retention_months: keep monthly full backups for this many months (default 12)
   yearly_retention_years: keep yearly full backups for this many years (default 0, forever)
 
-GFS retention for full backups:
-  Daily: keep fulls from the last full_retention_days (30 days).
-  Weekly: keep the first full of each week for 4 weeks (the weekly keep).
-  Monthly: keep the first full of each month for monthly_retention_months (12 months).
-  Yearly: keep the first full of January for yearly_retention_years (0 means forever).
-
-The monthly and yearly fulls are kept in separate folders in MinIO:
-  monthly-backups/ and yearly-backups/, under the agent prefix. They are
-  copied there by the backup plugin when a full is the first of its month
-  or year. Local disk only keeps the recent fulls; monthly and yearly are
-  MinIO only, to save local disk.
+The retention strategy (GFS) is defined in the strategy module, not here.
+This plugin asks the strategy whether a backup should be kept, so the rules
+are in one place. If you change the strategy, both the upload plugin and
+the cleanup plugin follow it.
 
 Paths are read from the backup and binlog config sections. MinIO settings
 are read from the minio config section. The same retention applies to both
@@ -36,6 +29,8 @@ import os
 import shutil
 import time
 from datetime import datetime, timedelta
+
+from plugins import strategy
 
 from plugin import Plugin
 
@@ -77,12 +72,10 @@ class CleanupPlugin(Plugin):
         full_cutoff = now - timedelta(days=full_days)
         incr_cutoff = now - timedelta(days=incr_days)
         binlog_cutoff = now - timedelta(hours=binlog_hours)
-        monthly_cutoff = now - timedelta(days=monthly_months * 30)
-        yearly_cutoff = None
-        if yearly_years > 0:
-            yearly_cutoff = now - timedelta(days=yearly_years * 365)
+        monthly_cutoff = strategy.monthly_cutoff(now, monthly_months)
+        yearly_cutoff = strategy.yearly_cutoff(now, yearly_years)
 
-        # Local full backups, keep the latest one always, plus GFS keeps.
+        # Local full backups, keep the latest one always, plus GFS keeps from strategy.
         deleted_fulls = self._clean_folders_gfs(full_path, full_cutoff, monthly_cutoff, yearly_cutoff)
         # Local incrementals, keep the latest one always.
         deleted_incrs = self._clean_folders(incr_path, incr_cutoff, keep_latest=True)
@@ -94,30 +87,8 @@ class CleanupPlugin(Plugin):
 
         print(f"[cleanup] done: local fulls deleted {deleted_fulls}, incrementals deleted {deleted_incrs}, binlogs deleted {deleted_binlogs}, minio objects deleted {minio_deleted}")
 
-    def _is_gfs_keep(self, date, monthly_cutoff, yearly_cutoff, all_dates):
-        """Check if a backup date should be kept for GFS reasons.
-
-        Keeps the first full of each month (within monthly retention) and
-        the first full of January (within yearly retention, or forever if
-        yearly_cutoff is None).
-        """
-        # Monthly: first full of the month, within monthly retention.
-        if date >= monthly_cutoff:
-            # Check if this is the first full in its month.
-            month_key = (date.year, date.month)
-            month_dates = [d for d in all_dates if (d.year, d.month) == month_key]
-            if month_dates and date == min(month_dates):
-                return True
-        # Yearly: first full of January, within yearly retention or forever.
-        if date.month == 1:
-            if yearly_cutoff is None or date >= yearly_cutoff:
-                year_dates = [d for d in all_dates if d.year == date.year and d.month == 1]
-                if year_dates and date == min(year_dates):
-                    return True
-        return False
-
     def _clean_folders_gfs(self, path, cutoff, monthly_cutoff, yearly_cutoff):
-        """Delete subfolders older than cutoff, keeping GFS monthly/yearly and latest."""
+        """Delete subfolders older than cutoff, keeping GFS monthly/yearly from strategy and latest."""
         if not os.path.isdir(path):
             return 0
         folders = []
@@ -139,8 +110,10 @@ class CleanupPlugin(Plugin):
         for date, full, name in folders:
             if full in keep:
                 continue
-            # Keep if it is a GFS monthly or yearly keeper.
-            if self._is_gfs_keep(date, monthly_cutoff, yearly_cutoff, all_dates):
+            # Ask the strategy if this backup should be kept for GFS reasons.
+            if strategy.should_keep_monthly(date, all_dates, monthly_cutoff):
+                continue
+            if strategy.should_keep_yearly(date, all_dates, yearly_cutoff):
                 continue
             if date < cutoff:
                 try:
@@ -282,9 +255,8 @@ class CleanupPlugin(Plugin):
                 date = _parse_backup_date(first)
                 if date is None:
                     continue
-                # For full-backups, apply GFS keep before deleting.
+                # For full-backups, ask the strategy if this should be kept for GFS.
                 if dest == "full-backups":
-                    # Get all dates in this dest to check GFS.
                     all_dates = []
                     for k in keys:
                         r = k[len(dest_prefix):]
@@ -292,7 +264,9 @@ class CleanupPlugin(Plugin):
                         d = _parse_backup_date(f)
                         if d is not None:
                             all_dates.append(d)
-                    if self._is_gfs_keep(date, monthly_cutoff, yearly_cutoff, all_dates):
+                    if strategy.should_keep_monthly(date, all_dates, monthly_cutoff):
+                        continue
+                    if strategy.should_keep_yearly(date, all_dates, yearly_cutoff):
                         continue
                 if date < cutoff:
                     try:
