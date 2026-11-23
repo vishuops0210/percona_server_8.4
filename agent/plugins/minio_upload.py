@@ -10,10 +10,9 @@ Config under "minio":
     mode: "folders" or "files"
     delete_after_upload: if true, delete the local unit after upload
 
-For full backups, also uploads to monthly-backups and yearly-backups when
-the backup is the first of its month or year. The rules for that come from
-the cleanup config: if a cleanup rule has first_of_month or first_of_year
-for the same source, this plugin uploads there too.
+All full backups go to one folder, full-backups. No separate monthly or
+yearly folders. The cleanup plugin keeps the first of each month and year
+longer, from the same folder.
 """
 
 import os
@@ -99,8 +98,6 @@ class MinIOUploadPlugin(Plugin):
                 if marker.exists():
                     continue
                 self._upload_folder(s3, bucket, base_key, folder)
-                if dest == "full-backups":
-                    self._upload_monthly_yearly(s3, bucket, prefix, folder)
                 marker.touch()
                 print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{base_key}/{folder.name}")
                 if delete_after:
@@ -132,75 +129,3 @@ class MinIOUploadPlugin(Plugin):
             rel = path.relative_to(folder)
             key = f"{base_key}/{folder.name}/{rel}"
             s3.upload_file(str(path), bucket, key)
-
-    def _upload_monthly_yearly(self, s3, bucket, prefix, folder):
-        """Upload a full to monthly-backups and yearly-backups if first of month or year."""
-        try:
-            import json
-            from datetime import datetime
-            manifest = json.loads((folder / "manifest.json").read_text())
-            created = manifest.get("created_utc", "")
-            if not created:
-                return
-            date = datetime.fromisoformat(created)
-        except Exception:
-            return
-
-        # Monthly: first full of the month.
-        monthly_prefix = f"{prefix}/monthly-backups/" if prefix else "monthly-backups/"
-        try:
-            months = self._existing_months(s3, bucket, monthly_prefix)
-            if (date.year, date.month) not in months:
-                dest_key = f"{prefix}/monthly-backups" if prefix else "monthly-backups"
-                self._upload_folder(s3, bucket, dest_key, folder)
-                print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{dest_key}/{folder.name} (first of month)")
-        except Exception as error:
-            print(f"[minio] monthly check failed: {error}")
-
-        # Yearly: first full of January.
-        if date.month == 1:
-            yearly_prefix = f"{prefix}/yearly-backups/" if prefix else "yearly-backups/"
-            try:
-                years = self._existing_years(s3, bucket, yearly_prefix)
-                if date.year not in years:
-                    dest_key = f"{prefix}/yearly-backups" if prefix else "yearly-backups"
-                    self._upload_folder(s3, bucket, dest_key, folder)
-                    print(f"[minio] uploaded {folder.name} -> s3://{bucket}/{dest_key}/{folder.name} (first of year)")
-            except Exception as error:
-                print(f"[minio] yearly check failed: {error}")
-
-    def _existing_months(self, s3, bucket, prefix):
-        from datetime import datetime
-        months = set()
-        paginator = s3.get_paginator("list_objects_v2")
-        pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
-        for page in pages:
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                rel = key[len(prefix):]
-                first = rel.split("/")[0] if rel else ""
-                if first:
-                    try:
-                        d = datetime.strptime(first.split("_")[0], "%Y%m%dT%H%M%S")
-                        months.add((d.year, d.month))
-                    except Exception:
-                        continue
-        return months
-
-    def _existing_years(self, s3, bucket, prefix):
-        from datetime import datetime
-        years = set()
-        paginator = s3.get_paginator("list_objects_v2")
-        pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
-        for page in pages:
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                rel = key[len(prefix):]
-                first = rel.split("/")[0] if rel else ""
-                if first:
-                    try:
-                        d = datetime.strptime(first.split("_")[0], "%Y%m%dT%H%M%S")
-                        years.add(d.year)
-                    except Exception:
-                        continue
-        return years
