@@ -4,24 +4,26 @@
     "path": "/var/backup/mysql",
     "full_path": "/var/backup/mysql-full",
     "incremental_path": "/var/backup/mysql-incremental",
-    "interval_seconds": 3600,
-    "full_interval_seconds": 604800,
+    "interval": "1h",
+    "full_every": "7d",
     "ansible_dir": "/home/vishal/ansible",
     "ansible_playbook": "playbooks/operations/recevo-xtrabackup.yml",
     "ansible_user": "vishal"
   },
   "binlog": {
-    "interval_seconds": 300,
+    "interval": "5m",
     "path": "/var/backup/binlog"
   },
   "cleanup": {
     "enabled": false,
-    "interval_seconds": 86400,
-    "full_retention_days": 30,
-    "incremental_retention_days": 7,
-    "binlog_retention_hours": 2,
-    "monthly_retention_months": 12,
-    "yearly_retention_years": 0
+    "interval": "1d",
+    "rules": [
+      {"source": "/var/backup/mysql-full", "dest": "full-backups", "keep": "30d"},
+      {"source": "/var/backup/mysql-incremental", "dest": "backups", "keep": "30d"},
+      {"source": "/var/backup/binlog", "dest": "binlogs", "keep": "2h"},
+      {"source": "/var/backup/mysql-full", "dest": "monthly-backups", "keep": "12M", "first_of_month": true},
+      {"source": "/var/backup/mysql-full", "dest": "yearly-backups", "keep": "forever", "first_of_year": true}
+    ]
   },
   "dashboard": {
     "enabled": false,
@@ -29,10 +31,10 @@
     "port": 8000
   },
   "discovery": {
-    "interval_seconds": 30
+    "interval": "30s"
   },
   "heartbeat": {
-    "interval_seconds": 10,
+    "interval": "10s",
     "url": ""
   },
   "minio": {
@@ -42,7 +44,7 @@
     "endpoint": "https://minio.ldc.opstree.dev:9000",
     "bucket": "automated-engine-backups",
     "prefix": "agent-percona-mysql",
-    "interval_seconds": 120,
+    "interval": "2m",
     "uploads": [
       {"source": "/var/backup/mysql-full", "dest": "full-backups", "mode": "folders", "delete_after_upload": false},
       {"source": "/var/backup/mysql-incremental", "dest": "backups", "mode": "folders", "delete_after_upload": false},
