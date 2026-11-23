@@ -14,7 +14,7 @@ every `binlog.interval_seconds`.
 import subprocess
 from pathlib import Path
 
-import percona
+from plugins import percona
 from plugin import Plugin
 
 
