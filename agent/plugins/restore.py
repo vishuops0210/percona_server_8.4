@@ -154,20 +154,28 @@ class RestorePlugin(Plugin):
             raise RuntimeError("MinIO not configured")
         s3 = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=access_key, aws_secret_access_key=secret_key)
 
+        # Find the dest folder names from the config, so restore looks
+        # in the same folders the backup plugin uploads to.
+        backup_cfg = self.config.get("backup", {})
+        full_dest, incr_dest = self._dest_names(minio_cfg, backup_cfg)
+
         # Find the latest full at or before target_time.
-        full = self._find_full(s3, bucket, prefix, target_time)
+        full = self._find_full(s3, bucket, prefix, target_time, full_dest)
         if not full:
             raise RuntimeError("No full backup found in MinIO")
         print(f"[restore] using full backup: {full}")
 
         # Find incrementals after that full and at or before target_time.
-        incrs = self._find_incrs(s3, bucket, prefix, full, target_time)
+        incrs = self._find_incrs(s3, bucket, prefix, full, target_time, incr_dest)
         print(f"[restore] found {len(incrs)} incrementals after the full")
 
-        # Download the full and incrementals.
-        self._download(s3, bucket, prefix, "full-backups", full, target_dir)
+        # Download the full and incrementals. The dest folder names come
+        # from the minio.uploads list in the config, not hardcoded, so if
+        # the user changes the dest names, restore follows them.
+        full_dest, incr_dest = self._dest_names(minio_cfg, backup_cfg)
+        self._download(s3, bucket, prefix, full_dest, full, target_dir)
         for incr in incrs:
-            self._download(s3, bucket, prefix, "backups", incr, target_dir)
+            self._download(s3, bucket, prefix, incr_dest, incr, target_dir)
 
         # Prepare the backup with xtrabackup.
         self._prepare(target_dir, full, incrs)
@@ -198,9 +206,27 @@ class RestorePlugin(Plugin):
                         folders[first] = date
         return folders
 
-    def _find_full(self, s3, bucket, prefix, target_time):
+    def _dest_names(self, minio_cfg, backup_cfg):
+        """Get the MinIO dest folder names for full and incremental backups
+        from the minio.uploads list in the config. Falls back to
+        full-backups and backups if the config does not list them.
+        """
+        full_path = backup_cfg.get("full_path", "/var/backup/mysql-full")
+        incr_path = backup_cfg.get("incremental_path", "/var/backup/mysql-incremental")
+        full_dest = "full-backups"
+        incr_dest = "backups"
+        for upload in minio_cfg.get("uploads", []):
+            source = upload.get("source", "")
+            dest = upload.get("dest", "")
+            if source == full_path and dest:
+                full_dest = dest
+            if source == incr_path and dest:
+                incr_dest = dest
+        return full_dest, incr_dest
+
+    def _find_full(self, s3, bucket, prefix, target_time, dest="full-backups"):
         """Find the latest full at or before target_time. If no target_time, latest overall."""
-        folders = self._list_folders(s3, bucket, prefix, "full-backups")
+        folders = self._list_folders(s3, bucket, prefix, dest)
         if not folders:
             return None
         candidates = []
@@ -212,12 +238,12 @@ class RestorePlugin(Plugin):
         candidates.sort()
         return candidates[-1][1]
 
-    def _find_incrs(self, s3, bucket, prefix, full_name, target_time):
+    def _find_incrs(self, s3, bucket, prefix, full_name, target_time, dest="backups"):
         """Find incrementals after the full and at or before target_time, in order."""
         full_date = _parse_date(full_name)
         if full_date is None:
             return []
-        folders = self._list_folders(s3, bucket, prefix, "backups")
+        folders = self._list_folders(s3, bucket, prefix, dest)
         candidates = []
         for name, date in folders.items():
             if date > full_date and (target_time is None or date <= target_time):
