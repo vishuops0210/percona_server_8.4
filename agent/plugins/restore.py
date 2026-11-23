@@ -280,8 +280,9 @@ class RestorePlugin(Plugin):
 
         target_host = cfg.get("target_host", "")
         # target_user is the SSH user on the restore server. On AWS Ubuntu
-        # it is usually "ubuntu", not "vishal". Falls back to ansible_user.
-        target_user = cfg.get("target_user", "") or cfg.get("ansible_user", "vishal")
+        # it is usually "ubuntu", not "vishal". This is the Ansible user too,
+        # there is only one user, the one Ansible SSHes as.
+        target_user = cfg.get("target_user", "ubuntu")
         # target_ssh_key is the private key file to SSH with, e.g. an AWS .pem
         # file like /home/vishal/Downloads/default.pem. Passed to Ansible via
         # --private-key, so it works even if the key is not the default id_rsa.
