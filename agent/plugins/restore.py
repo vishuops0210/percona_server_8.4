@@ -224,10 +224,37 @@ class RestorePlugin(Plugin):
         print(f"[restore] backup prepared in {full_path}")
 
     def _restore_to_host(self, cfg, target_dir, full_name):
-        """Copy the prepared backup to the target host via Ansible. Placeholder for now."""
+        """Copy the prepared backup to the target host via Ansible.
+        Runs the recevo-restore playbook against the target host. The playbook
+        installs Percona Server if missing, stops MySQL, clears the data dir,
+        copies the prepared backup, fixes permissions, and starts MySQL.
+        """
+        import shutil
+        import subprocess
+
         target_host = cfg.get("target_host", "")
         ansible_user = cfg.get("ansible_user", "vishal")
-        print(f"[restore] target host restore to {target_host} is not yet implemented in the plugin.")
-        print(f"[restore] prepared backup is in {target_dir}/{full_name}")
-        print(f"[restore] to restore it manually: copy {target_dir}/{full_name} to the target host, stop MySQL, copy the files to the data dir, fix permissions, start MySQL.")
-        print(f"[restore] an Ansible playbook for this step is the next task.")
+        ansible_dir = cfg.get("ansible_dir", "/home/vishal/ansible")
+        ansible_playbook = cfg.get("ansible_playbook", "playbooks/operations/recevo-restore.yml")
+        root_password = cfg.get("target_mysql_root_password", "")
+
+        if shutil.which("ansible-playbook") is None:
+            raise RuntimeError("ansible-playbook not found on this host")
+
+        backup_path = str(target_dir / full_name)
+        print(f"[restore] restoring {backup_path} to {target_host} via Ansible")
+        argv = [
+            "ansible-playbook",
+            "-i", target_host + ",",
+            "-u", ansible_user,
+            ansible_playbook,
+            "--extra-vars",
+            f"recevo_restore_backup_path={backup_path} recevo_restore_mysql_root_password={root_password}",
+        ]
+        result = subprocess.run(argv, cwd=ansible_dir, text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-30:])
+            raise RuntimeError(f"ansible-playbook for restore failed:\n{tail}")
+        print(f"[restore] restore to {target_host} done")
+
