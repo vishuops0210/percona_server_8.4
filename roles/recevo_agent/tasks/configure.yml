@@ -16,6 +16,14 @@
     - "{{ recevo_backup_path }}"
     - "{{ recevo_binlog_path }}"
 
+- name: Create the restore directory on proxy1
+  ansible.builtin.file:
+    path: /var/restore
+    state: directory
+    owner: "{{ recevo_agent_user }}"
+    group: "{{ recevo_agent_group }}"
+    mode: "0700"
+
 - name: Create the client config directory
   ansible.builtin.file:
     path: /etc/percona-backup
