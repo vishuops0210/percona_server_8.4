@@ -29,7 +29,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import percona
+from plugins import percona
 from plugin import Plugin
 
 
