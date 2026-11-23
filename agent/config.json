@@ -1,5 +1,5 @@
 {
-  "agent_id": "agent-percona-mysql",
+  "agent_id": "agent-proxysql-01",
   "backup": {
     "path": "/var/backup/mysql",
     "full_path": "/var/backup/mysql-full",
@@ -15,14 +15,16 @@
     "path": "/var/backup/binlog"
   },
   "cleanup": {
-    "enabled": true,
+    "enabled": false,
     "interval_seconds": 86400,
     "full_retention_days": 30,
     "incremental_retention_days": 7,
-    "binlog_retention_hours": 2
+    "binlog_retention_hours": 2,
+    "monthly_retention_months": 12,
+    "yearly_retention_years": 0
   },
   "dashboard": {
-    "enabled": true,
+    "enabled": false,
     "host": "0.0.0.0",
     "port": 8000
   },
@@ -34,9 +36,9 @@
     "url": ""
   },
   "minio": {
-    "enabled": true,
-    "access_key": "9FE92CDETZVO89QF41B0",
-    "secret_key": "Nc8q7mgia7BRNJqchjBqnlzj1hbQsDDxsiUoT9c8",
+    "enabled": false,
+    "access_key": "",
+    "secret_key": "",
     "endpoint": "https://minio.ldc.opstree.dev:9000",
     "bucket": "automated-engine-backups",
     "prefix": "agent-percona-mysql",
