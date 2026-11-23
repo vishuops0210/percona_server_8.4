@@ -1,0 +1,4 @@
+---
+recevo_restore_target_dir: /var/restore
+recevo_restore_mysql_datadir: /var/lib/mysql
+recevo_restore_mysql_root_password: ""
