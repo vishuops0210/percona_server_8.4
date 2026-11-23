@@ -31,7 +31,7 @@ from urllib.parse import urlparse, parse_qs
 
 from plugin import Plugin
 
-PLUGINS = ["backup", "binlog", "discovery", "heartbeat", "minio", "cleanup"]
+PLUGINS = ["backup", "binlog", "discovery", "heartbeat", "minio", "cleanup", "restore"]
 
 HTML = """<!DOCTYPE html>
 <html>
@@ -60,7 +60,7 @@ button.active { background: #0a5; color: #fff; border-color: #0a5; }
 <div id="logs">Select a plugin to see its logs.</div>
 <div class="meta" id="meta"></div>
 <script>
-const plugins = ["all", "backup", "binlog", "cleanup", "discovery", "heartbeat", "minio"];
+const plugins = ["all", "backup", "binlog", "cleanup", "discovery", "heartbeat", "minio", "restore"];
 let current = "all";
 const btns = document.getElementById("buttons");
 const logsEl = document.getElementById("logs");
@@ -256,3 +256,4 @@ def _parse_journal_time(line, now):
         return datetime.strptime(stamp, "%b %d %H:%M:%S %Y")
     except Exception:
         return None
+
