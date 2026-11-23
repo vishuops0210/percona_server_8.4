@@ -71,12 +71,60 @@ class XtraBackupPlugin(Plugin):
             print("[backup] no mysql.db_hosts configured -- plugin idle")
             return
 
+        # On startup, do not run a backup immediately if one was taken
+        # recently. Check the last backup time in MinIO, and if it is less
+        # than the interval ago, wait until the interval has passed. This
+        # stops a restart from triggering a backup every time, which was
+        # creating incrementals 2 minutes apart instead of 1 hour apart.
+        try:
+            wait_seconds = self._wait_before_first_run(backup_cfg, interval)
+            if wait_seconds > 0:
+                print(f"[backup] last backup was recent, waiting {wait_seconds}s before first run")
+                stop_event.wait(wait_seconds)
+        except Exception as error:
+            print(f"[backup] could not check last backup time: {error}, running now")
+
         while not stop_event.is_set():
             try:
                 self.backup_once(mysql_cfg, backup_cfg, full_every)
             except Exception as error:
                 print(f"[backup] failed: {error}")
             stop_event.wait(interval)
+
+    def _wait_before_first_run(self, backup_cfg, interval):
+        """Return seconds to wait before the first backup on startup.
+        Returns 0 if no recent backup exists or the last backup is older
+        than the interval, so the plugin runs immediately. Returns the
+        remaining seconds if the last backup is too recent.
+        """
+        from datetime import datetime, timezone
+        minio_cfg = self.config.get("minio", {})
+        if not minio_cfg.get("enabled"):
+            return 0
+        try:
+            import boto3
+            s3 = boto3.client(
+                "s3",
+                endpoint_url=minio_cfg.get("endpoint"),
+                aws_access_key_id=minio_cfg.get("access_key"),
+                aws_secret_access_key=minio_cfg.get("secret_key"),
+            )
+            bucket = minio_cfg.get("bucket")
+            prefix = minio_cfg.get("prefix", "")
+            latest_full, latest_incr = self._latest(s3, bucket, prefix)
+            latest = latest_incr or latest_full
+            if not latest:
+                return 0
+            last_date = _parse_date(latest)
+            if not last_date:
+                return 0
+            now = datetime.now(timezone.utc)
+            elapsed = (now - last_date).total_seconds()
+            if elapsed >= interval:
+                return 0
+            return int(interval - elapsed)
+        except Exception:
+            return 0
 
     def backup_once(self, mysql_cfg, backup_cfg, full_every):
         ansible_dir = backup_cfg.get("ansible_dir", "/home/vishal/ansible")
@@ -275,4 +323,5 @@ class XtraBackupPlugin(Plugin):
             except ValueError:
                 return parts[0].strip(), 0
         return "", 0
+
 
