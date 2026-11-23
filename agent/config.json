@@ -18,9 +18,23 @@
     "enabled": false,
     "interval": "1d",
     "rules": [
-      {"source": "/var/backup/mysql-full", "dest": "full-backups", "keep": "30d", "monthly_keep": "12mo", "yearly_keep": "forever"},
-      {"source": "/var/backup/mysql-incremental", "dest": "backups", "keep": "30d"},
-      {"source": "/var/backup/binlog", "dest": "binlogs", "keep": "2h"}
+      {
+        "source": "/var/backup/mysql-full",
+        "dest": "full-backups",
+        "keep": "30d",
+        "monthly_keep": "12mo",
+        "yearly_keep": "forever"
+      },
+      {
+        "source": "/var/backup/mysql-incremental",
+        "dest": "backups",
+        "keep": "30d"
+      },
+      {
+        "source": "/var/backup/binlog",
+        "dest": "binlogs",
+        "keep": "2h"
+      }
     ]
   },
   "dashboard": {
@@ -44,9 +58,24 @@
     "prefix": "agent-percona-mysql",
     "interval": "2m",
     "uploads": [
-      {"source": "/var/backup/mysql-full", "dest": "full-backups", "mode": "folders", "delete_after_upload": false},
-      {"source": "/var/backup/mysql-incremental", "dest": "backups", "mode": "folders", "delete_after_upload": false},
-      {"source": "/var/backup/binlog", "dest": "binlogs", "mode": "files", "delete_after_upload": true}
+      {
+        "source": "/var/backup/mysql-full",
+        "dest": "full-backups",
+        "mode": "folders",
+        "delete_after_upload": false
+      },
+      {
+        "source": "/var/backup/mysql-incremental",
+        "dest": "backups",
+        "mode": "folders",
+        "delete_after_upload": false
+      },
+      {
+        "source": "/var/backup/binlog",
+        "dest": "binlogs",
+        "mode": "files",
+        "delete_after_upload": true
+      }
     ]
   },
   "mysql": {
@@ -71,7 +100,6 @@
     "target_mysql_root_password": "",
     "target_dir": "/var/restore",
     "ansible_dir": "/home/vishal/ansible",
-    "ansible_playbook": "playbooks/operations/recevo-restore.yml",
-    "ansible_user": "vishal"
+    "ansible_playbook": "playbooks/operations/recevo-restore.yml"
   }
 }
