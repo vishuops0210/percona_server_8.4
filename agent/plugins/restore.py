@@ -6,8 +6,13 @@ disables itself.
 
 Config under "restore":
   enabled: true or false (default false)
+  mode: "once" or "warm" (default "once")
+    once: restore once to target_time (or latest), then stop.
+    warm: restore the latest backup to the target every interval,
+      keeping a warm standby that is always up to date.
+  interval: how often to restore in warm mode, e.g. "1h" (default "1h")
   target_time: the point in time to restore to, e.g. "2026-11-23T14:00:00"
-    If empty, restores to the latest available backup.
+    If empty, restores to the latest available backup. Only used in once mode.
   target_host: the IP of the MySQL host to restore to, e.g. "192.168.8.60"
     If empty, restores to a local directory for inspection only.
   target_dir: where to download and prepare the backup, e.g. "/var/restore"
@@ -44,6 +49,35 @@ from pathlib import Path
 from plugin import Plugin
 
 
+def _seconds(value, default=0):
+    """Parse a duration like 30s, 5m, 1h, 7d, 12mo into seconds."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    value = str(value).strip()
+    if not value:
+        return default
+    lower = value.lower()
+    if lower.endswith("mo") or lower.endswith("mon"):
+        try:
+            number = int(value[:-2] if lower.endswith("mo") else value[:-3])
+            return number * 2592000
+        except ValueError:
+            return default
+    if lower.endswith("min"):
+        try:
+            number = int(value[:-3])
+            return number * 60
+        except ValueError:
+            return default
+    unit = value[-1]
+    try:
+        number = int(value[:-1])
+    except ValueError:
+        return default
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800, "M": 2592000, "y": 31536000}
+    return number * multipliers.get(unit, 1)
+
+
 def _parse_date(name):
     """Parse the date from a backup folder name like 20261119T121437_08315694."""
     try:
@@ -61,13 +95,25 @@ class RestorePlugin(Plugin):
         if not cfg.get("enabled"):
             print("[restore] disabled -- plugin idle")
             return
-        # Run once, then stop. Restore is manual, not scheduled.
-        try:
-            self.restore_once(cfg)
-        except Exception as error:
-            print(f"[restore] failed: {error}")
-        # Disable itself after one run, so it does not run again on restart.
-        print("[restore] done, disabling plugin. Set restore.enabled to true again for another restore.")
+        mode = cfg.get("mode", "once")
+        interval = _seconds(cfg.get("interval", "1h"), 3600)
+        if mode == "warm":
+            # Warm standby: restore the latest backup to the target every
+            # interval, keeping the target up to date. Runs forever until disabled.
+            print(f"[restore] warm standby mode, restoring latest backup every {cfg.get('interval', '1h')}")
+            while not stop_event.is_set():
+                try:
+                    self.restore_once(cfg)
+                except Exception as error:
+                    print(f"[restore] failed: {error}")
+                stop_event.wait(interval)
+        else:
+            # Once mode: restore once, then stop. Restore is manual, not scheduled.
+            try:
+                self.restore_once(cfg)
+            except Exception as error:
+                print(f"[restore] failed: {error}")
+            print("[restore] done, disabling plugin. Set restore.enabled to true again for another restore.")
 
     def restore_once(self, cfg):
         minio_cfg = self.config.get("minio", {})
@@ -257,4 +303,5 @@ class RestorePlugin(Plugin):
             tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-30:])
             raise RuntimeError(f"ansible-playbook for restore failed:\n{tail}")
         print(f"[restore] restore to {target_host} done")
+
 
