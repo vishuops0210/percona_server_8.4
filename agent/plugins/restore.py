@@ -279,7 +279,13 @@ class RestorePlugin(Plugin):
         import subprocess
 
         target_host = cfg.get("target_host", "")
-        ansible_user = cfg.get("ansible_user", "vishal")
+        # target_user is the SSH user on the restore server. On AWS Ubuntu
+        # it is usually "ubuntu", not "vishal". Falls back to ansible_user.
+        target_user = cfg.get("target_user", "") or cfg.get("ansible_user", "vishal")
+        # target_ssh_key is the private key file to SSH with, e.g. an AWS .pem
+        # file like /home/vishal/Downloads/default.pem. Passed to Ansible via
+        # --private-key, so it works even if the key is not the default id_rsa.
+        target_ssh_key = cfg.get("target_ssh_key", "")
         ansible_dir = cfg.get("ansible_dir", "/home/vishal/ansible")
         ansible_playbook = cfg.get("ansible_playbook", "playbooks/operations/recevo-restore.yml")
         root_password = cfg.get("target_mysql_root_password", "")
@@ -292,16 +298,19 @@ class RestorePlugin(Plugin):
         argv = [
             "ansible-playbook",
             "-i", target_host + ",",
-            "-u", ansible_user,
+            "-u", target_user,
             ansible_playbook,
             "--extra-vars",
             f"recevo_restore_backup_path={backup_path} recevo_restore_mysql_root_password={root_password}",
         ]
+        if target_ssh_key:
+            argv.extend(["--private-key", target_ssh_key])
         result = subprocess.run(argv, cwd=ansible_dir, text=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-30:])
             raise RuntimeError(f"ansible-playbook for restore failed:\n{tail}")
         print(f"[restore] restore to {target_host} done")
+
 
 
