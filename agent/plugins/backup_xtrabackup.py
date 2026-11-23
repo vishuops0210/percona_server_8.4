@@ -1,33 +1,15 @@
-"""
-Remote physical backup plugin (Percona XtraBackup via Ansible).
+"""Remote physical backup plugin (Percona XtraBackup via Ansible).
 
-Runs on the ProxySQL host (proxy1). The agent identifies a SECONDARY database
-node, then runs an Ansible playbook against it. The playbook installs
-XtraBackup on the secondary, takes the backup there, and fetches the archive
-back to this host. The agent then extracts it and writes the manifest.
+Runs on proxy1. Picks a SECONDARY, runs the playbook there, fetches the
+archive back, extracts it, writes the manifest.
 
-XtraBackup reads the datadir directly, so it cannot run on proxy1. This
-plugin is how a backup is taken from a separate server: the work happens on
-the secondary, the result lands here.
+Full and incremental go to separate folders from config.
+Takes a full once every full_every, an incremental every interval in between.
+Each backup lands as <id>/ with manifest.json.
 
-Full and incremental backups go to separate folders, both from the config:
-backup.full_path: where full backups land, e.g. /var/backup/mysql-full
-backup.incremental_path: where incremental backups land,
-e.g. /var/backup/mysql-incremental
-
-Takes a full backup once a week and an incremental every hour in between.
-Each backup lands in its folder as <id>/ with a manifest.json (kind, base,
-LSN range, binlog position).
-
-Source of truth for the backup chain is MinIO, not local disk. The plugin
-lists the backup folders in MinIO under the agent prefix to find the latest
-full and latest incremental. This way, if local folders are deleted by
-mistake, the chain is still known from MinIO and the next backup is a
-proper incremental, not a wasteful full. If MinIO is unreachable or empty,
-it falls back to local folders. If both are empty (first ever run), it takes
-a full backup.
-
-It runs once on start, then every backup.interval_seconds.
+Source of truth for the chain is MinIO. Lists backup folders in MinIO to find
+the latest full and latest incremental. Falls back to local folders if MinIO
+is empty or unreachable. If both are empty, takes a full.
 """
 
 import json
@@ -45,14 +27,30 @@ from plugins import percona
 from plugin import Plugin
 
 
+def _seconds(value, default=0):
+    """Parse a duration like 30s, 5m, 1h, 7d, 1M into seconds."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    value = str(value).strip()
+    if not value:
+        return default
+    unit = value[-1]
+    try:
+        number = int(value[:-1])
+    except ValueError:
+        return default
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800, "M": 2592000, "y": 31536000}
+    return number * multipliers.get(unit, 1)
+
+
 class XtraBackupPlugin(Plugin):
     name = "backup-xtrabackup"
 
     def run(self, stop_event):
         mysql_cfg = self.config.get("mysql", {})
         backup_cfg = self.config.get("backup", {})
-        interval = backup_cfg.get("interval_seconds", 3600)
-        full_interval = backup_cfg.get("full_interval_seconds", 604800)
+        interval = _seconds(backup_cfg.get("interval", "1h"), 3600)
+        full_every = _seconds(backup_cfg.get("full_every", "7d"), 604800)
 
         if not mysql_cfg.get("db_hosts"):
             print("[backup] no mysql.db_hosts configured -- plugin idle")
@@ -60,49 +58,36 @@ class XtraBackupPlugin(Plugin):
 
         while not stop_event.is_set():
             try:
-                self.backup_once(mysql_cfg, backup_cfg, full_interval)
+                self.backup_once(mysql_cfg, backup_cfg, full_every)
             except Exception as error:
                 print(f"[backup] failed: {error}")
             stop_event.wait(interval)
 
-    def backup_once(self, mysql_cfg, backup_cfg, full_interval):
+    def backup_once(self, mysql_cfg, backup_cfg, full_every):
         ansible_dir = backup_cfg.get("ansible_dir", "/home/vishal/ansible")
         ansible_playbook = backup_cfg.get(
             "ansible_playbook", "playbooks/operations/recevo-xtrabackup.yml")
         ansible_user = backup_cfg.get("ansible_user", "vishal")
 
         if shutil.which("ansible-playbook") is None:
-            raise RuntimeError(
-                "ansible-playbook not found on this host. Install Ansible "
-                "with the recevo_agent role (it runs on proxy1).")
+            raise RuntimeError("ansible-playbook not found on this host")
 
-        # Pick a secondary to back up from. Never back up from the writer.
         secondary = self._pick_secondary(mysql_cfg)
         if not secondary:
-            raise RuntimeError(
-                "no SECONDARY node found. Check that the cluster is up and "
-                "discovery can reach it.")
+            raise RuntimeError("no SECONDARY node found")
 
-        # Full and incremental backups live in separate folders, both from config.
         full_path = Path(backup_cfg.get("full_path", "/var/backup/mysql-full"))
         incremental_path = Path(backup_cfg.get("incremental_path", "/var/backup/mysql-incremental"))
-
-        # Staging area where the playbook fetches the archive, before we move
-        # the extracted folder to its final home.
         staging_path = Path(backup_cfg.get("path", "/var/backup/mysql"))
 
         full_path.mkdir(mode=0o700, parents=True, exist_ok=True)
         incremental_path.mkdir(mode=0o700, parents=True, exist_ok=True)
         staging_path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
-        # Full if there is no finished full backup yet, or the last full is
-        # older than full_interval_seconds. Otherwise incremental from the
-        # latest finished backup (full or incremental), so the chain stays linked.
-        # Source of truth is MinIO, with local folders as fallback.
         latest_full, latest_any = self._latest(full_path, incremental_path)
         now = datetime.now(timezone.utc)
 
-        if latest_full is None or (now - latest_full[0]).total_seconds() >= full_interval:
+        if latest_full is None or (now - latest_full[0]).total_seconds() >= full_every:
             kind = "full"
             base = ""
             dest_path = full_path
@@ -115,8 +100,6 @@ class XtraBackupPlugin(Plugin):
         print(f"[backup] {kind} backup of {secondary} -> {dest_path / backup_id}"
               + (f" (base {base})" if base else ""))
 
-        # Run the playbook against the secondary. It installs XtraBackup,
-        # takes the backup there, and fetches the archive back to this host.
         argv = [
             "ansible-playbook",
             "-i", secondary + ",",
@@ -131,12 +114,9 @@ class XtraBackupPlugin(Plugin):
             tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-20:])
             raise RuntimeError(f"ansible-playbook for {kind} backup failed:\n{tail}")
 
-        # The playbook fetched the archive to <staging>/<id>.tar.gz. Extract
-        # it there, then move the folder to its final home (full or incremental).
         archive = staging_path / (backup_id + ".tar.gz")
         if not archive.exists():
-            raise RuntimeError(
-                f"playbook finished but {archive} is missing on this host")
+            raise RuntimeError(f"playbook finished but {archive} is missing")
 
         with tarfile.open(archive, "r:gz") as tar:
             tar.extractall(path=staging_path)
@@ -163,7 +143,6 @@ class XtraBackupPlugin(Plugin):
         print(f"[backup] done: {backup_id} {kind} ({manifest['size_bytes']} bytes)")
 
     def _pick_secondary(self, mysql_cfg):
-        """Return the IP of a SECONDARY node, or None if none is found."""
         try:
             members, sources, primary = percona.discover(mysql_cfg)
         except Exception:
@@ -174,30 +153,13 @@ class XtraBackupPlugin(Plugin):
         return None
 
     def _latest(self, full_path, incremental_path):
-        """Find the latest finished full backup and the latest finished backup.
-
-        Source of truth is MinIO. Lists the backup folders in MinIO under the
-        agent prefix to find the latest full and latest incremental. Falls back
-        to local folders if MinIO is unreachable or empty. Returns
-        (latest_full, latest_any), each a (created_datetime, dir) tuple or
-        None. Only folders with a manifest.json count locally; in MinIO, only
-        folder names that parse as a backup_id count.
-        """
-        # Try MinIO first, it is the source of truth.
+        """Find latest full and latest any backup. MinIO first, local fallback."""
         minio_full, minio_any = self._latest_from_minio()
         if minio_full is not None or minio_any is not None:
             return minio_full, minio_any
-        # Fallback to local folders if MinIO is empty or unreachable.
         return self._latest_from_local(full_path, incremental_path)
 
     def _latest_from_minio(self):
-        """Find latest full and latest any backup from MinIO.
-
-        Lists objects under <prefix>/full-backups/ and <prefix>/backups/.
-        Returns (latest_full, latest_any) as (datetime, Path-like name) tuples,
-        where the second element is a Path with .name set to the folder name.
-        Returns (None, None) if MinIO is not configured, unreachable, or empty.
-        """
         minio_cfg = self.config.get("minio", {})
         if not minio_cfg.get("enabled"):
             return None, None
@@ -213,12 +175,9 @@ class XtraBackupPlugin(Plugin):
         if not endpoint or not bucket or not access_key:
             return None, None
         try:
-            s3 = boto3.client(
-                "s3",
-                endpoint_url=endpoint,
-                aws_access_key_id=access_key,
-                aws_secret_access_key=secret_key,
-            )
+            s3 = boto3.client("s3", endpoint_url=endpoint,
+                              aws_access_key_id=access_key,
+                              aws_secret_access_key=secret_key)
         except Exception as error:
             print(f"[backup] MinIO client failed, falling back to local: {error}")
             return None, None
@@ -239,7 +198,7 @@ class XtraBackupPlugin(Plugin):
                         if first:
                             folders.add(first)
             except Exception as error:
-                print(f"[backup] MinIO list failed for {dest_prefix}, falling back to local: {error}")
+                print(f"[backup] MinIO list failed for {dest_prefix}: {error}")
                 return None, None
             for folder_name in folders:
                 try:
@@ -255,11 +214,6 @@ class XtraBackupPlugin(Plugin):
         return latest_full, latest_any
 
     def _latest_from_local(self, full_path, incremental_path):
-        """Find the latest finished full backup and the latest finished backup
-        from local folders. Returns (latest_full, latest_any), each a
-        (created_datetime, dir) tuple or None. Only folders with a manifest.json
-        count; a folder without one is an incomplete backup and is ignored.
-        """
         latest_full = None
         latest_any = None
         for root in (full_path, incremental_path):
@@ -284,7 +238,6 @@ class XtraBackupPlugin(Plugin):
         return latest_full, latest_any
 
     def _read_kv(self, path):
-        """Read a 'key = value' file such as xtrabackup_checkpoints."""
         values = {}
         if not path.exists():
             return values
@@ -295,9 +248,6 @@ class XtraBackupPlugin(Plugin):
         return values
 
     def _binlog_position(self, path):
-        """Read binlog file and position from xtrabackup_binlog_info.
-        The file holds one line: <binlog file><TAB><position><TAB><gtid set>.
-        """
         if not path.exists():
             return "", 0
         lines = path.read_text(errors="replace").splitlines()
