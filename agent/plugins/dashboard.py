@@ -16,9 +16,11 @@ Config, under "dashboard":
   port: the port to listen on (default 8000)
   host: the address to bind (default 0.0.0.0)
 
-The dashboard reads logs with journalctl -u recevo-agent, filters by the
-plugin name in brackets, e.g. [minio], [backup], [binlog], [discovery],
-and returns the matching lines. It auto-refreshes every 1 second.
+The dashboard reads logs with journalctl -u recevo-agent. For a specific
+plugin it fetches a large window and filters by the plugin name in brackets,
+e.g. [minio], [backup], [binlog], [discovery], then returns the last 200
+matching lines. This way a noisy plugin like heartbeat does not push a
+quiet plugin like backup out of the window. It auto-refreshes every 1 second.
 """
 
 import subprocess
@@ -153,11 +155,11 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
 
-def _journal_lines():
+def _journal_lines(limit=5000):
     try:
         result = subprocess.run(
-            ["journalctl", "-u", "recevo-agent", "-n", "200", "--no-pager"],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
+            ["journalctl", "-u", "recevo-agent", "-n", str(limit), "--no-pager"],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
         )
         return result.stdout.splitlines()
     except Exception:
@@ -165,14 +167,23 @@ def _journal_lines():
 
 
 def _read_logs(plugin):
-    """Return the last 200 journalctl lines for the agent, filtered by plugin."""
-    lines = _journal_lines()
+    """Return the last 200 journalctl lines for the plugin.
+
+    Fetches a large window (5000 lines) and filters by plugin first, then
+    takes the last 200 matching lines. This way a noisy plugin like
+    heartbeat (every 10s) and discovery (every 30s) does not push a quiet
+    plugin like backup (hourly) out of the window.
+    """
+    lines = _journal_lines(limit=5000)
     if not lines:
         return "Failed to read logs."
     if plugin == "all":
-        return "\n".join(lines)
+        return "\n".join(lines[-200:])
     needle = f"[{plugin}]"
-    return "\n".join(line for line in lines if needle in line)
+    matching = [line for line in lines if needle in line]
+    if not matching:
+        return ""
+    return "\n".join(matching[-200:])
 
 
 def _service_start_time():
@@ -187,7 +198,6 @@ def _service_start_time():
                 value = line.split("=", 1)[1].strip()
                 if not value:
                     return None
-                # Format: "Fri 2026-11-20 23:19:55 IST"
                 try:
                     return datetime.strptime(value, "%a %Y-%m-%d %H:%M:%S %Z")
                 except Exception:
@@ -202,7 +212,7 @@ def _service_start_time():
 
 def _agent_status():
     """Return alive flag, last log time, start time, and uptime."""
-    lines = _journal_lines()
+    lines = _journal_lines(limit=200)
     now = datetime.now()
     if not lines:
         return {"alive": False, "last_log": "never", "started": "unknown", "uptime": "unknown"}
@@ -214,10 +224,8 @@ def _agent_status():
         last_log = last_time.strftime("%H:%M:%S")
         alive = (now - last_time).total_seconds() < 30
 
-    # Uptime from systemd service start time, not from journal window.
     started_dt = _service_start_time()
     if started_dt is None:
-        # Fallback to first journal line.
         started_dt = _parse_journal_time(lines[0], now)
     started = "unknown"
     uptime = "unknown"
