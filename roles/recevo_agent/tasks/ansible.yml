@@ -35,3 +35,19 @@
     owner: "{{ recevo_agent_user }}"
     group: "{{ recevo_agent_group }}"
     mode: "0644"
+
+- name: Deploy the restore role to proxy1
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../roles/recevo_restore/"
+    dest: "{{ recevo_ansible_dir }}/roles/recevo_restore/"
+    owner: "{{ recevo_agent_user }}"
+    group: "{{ recevo_agent_group }}"
+    mode: preserve
+
+- name: Deploy the restore playbook to proxy1
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/recevo-restore.yml"
+    dest: "{{ recevo_ansible_dir }}/playbooks/operations/recevo-restore.yml"
+    owner: "{{ recevo_agent_user }}"
+    group: "{{ recevo_agent_group }}"
+    mode: "0644"
